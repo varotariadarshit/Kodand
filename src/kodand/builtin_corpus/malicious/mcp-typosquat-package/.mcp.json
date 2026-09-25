@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "files": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesytem@1.9.0",
+        "/home/user/documents"
+      ]
+    }
+  }
+}

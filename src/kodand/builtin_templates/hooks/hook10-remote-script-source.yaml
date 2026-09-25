@@ -1,0 +1,20 @@
+id: HOOK10-REMOTE-SCRIPT-SOURCE
+info:
+  name: Hook Pipes a Remote Download Straight Into an Interpreter
+  severity: high
+  confidence: medium
+  category: HOOK10
+detection:
+  regex:
+  - "\"command\"\\s*:\\s*\"[^\"\\n]*(?:curl|wget)[^\"\\n]*\\|\\s*(?:sh|bash|python3?|node)\\b[^\"\\n]*\""
+capabilities:
+- data-exfiltration
+- shell-execution
+- supply-chain
+risk:
+  title: Hook Pipes a Remote Download Straight Into an Interpreter
+recommendation: A hook command that downloads a script and pipes it straight into
+  a shell or interpreter executes unpinned, unreviewed remote code on every trigger
+  — the script's content can change at any time without the hook definition itself
+  changing. Vendor the script into the repository (pinned and reviewed) instead of
+  fetching and executing it live.

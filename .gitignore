@@ -1,0 +1,22 @@
+__pycache__/
+*.py[oc]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.log
+# CI and install.sh install with pip/pipx, so a uv lockfile would only drift
+uv.lock
+
+# scan output (generated, keep the folder via .gitkeep)
+output/*
+!output/.gitkeep
+
+# local Claude Code session state — machine/session-specific, not project config
+.claude/settings.local.json
+.claude/scheduled_tasks.lock

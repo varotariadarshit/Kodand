@@ -1,0 +1,17 @@
+id: AST04-TEMPLATE-INJECTION
+info:
+  name: Template Injection Sink
+  severity: medium
+  confidence: medium
+  category: AST04
+detection:
+  match:
+  - jinja2
+  - render_template_string
+  regex:
+  - render_template_string\s*\([^)\n]*(?:request|input|user)
+capabilities:
+- code-execution
+risk:
+  title: Template Injection
+recommendation: Sanitize and sandbox template rendering of skill-controlled content.

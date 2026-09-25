@@ -1,0 +1,19 @@
+id: HOOK07-PRIVILEGE-ESCALATION
+info:
+  name: Hook Command Attempts Privilege Escalation
+  severity: critical
+  confidence: medium
+  category: HOOK07
+detection:
+  regex:
+  - "\"command\"\\s*:\\s*\"[^\"\\n]*(?:\\bsudo\\b|\\bdoas\\b|\\bpkexec\\b|chmod\\s+\\+s|chmod\\s+4[0-7]{3}|--privileged)[^\"\\n]*\""
+capabilities:
+- privilege-escalation
+- shell-execution
+risk:
+  title: Hook Command Attempts Privilege Escalation
+recommendation: A hook that fires automatically on tool events has no legitimate
+  reason to elevate privileges (sudo/doas/pkexec), set a setuid bit, or request a
+  privileged container — this expands the hook's blast radius far beyond whatever
+  the agent runtime itself was granted. Remove the escalation or move it to a
+  reviewed, manually-invoked script instead.

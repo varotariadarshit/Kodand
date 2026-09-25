@@ -1,0 +1,20 @@
+id: AST05-TRUST-EXTERNAL
+info:
+  name: Blind Trust of External Input
+  severity: high
+  confidence: medium
+  category: AST05
+detection:
+  match:
+  - trust any instructions
+  - obey instructions in
+  - follow any commands
+  - do whatever the document says
+  - execute the returned instructions
+  regex:
+  - (?:trust|obey|follow|execute)\s+(?:any|all|whatever)\s+(?:instructions?|commands?|the\s+document\s+says)
+capabilities:
+- external-instruction
+risk:
+  title: Blind External Trust
+recommendation: Never grant blanket trust to external documents, pages, or tool outputs.

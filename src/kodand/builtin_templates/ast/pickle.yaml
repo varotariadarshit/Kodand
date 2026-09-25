@@ -1,0 +1,18 @@
+id: AST04-PICKLE
+info:
+  name: Unsafe Pickle / Marshal
+  severity: high
+  confidence: high
+  category: AST04
+detection:
+  match:
+  - pickle.load
+  - pickle.loads
+  - marshal.loads
+  - cpickle
+capabilities:
+- deserialization
+- code-execution
+risk:
+  title: Unsafe Deserialization
+recommendation: Never deserialize untrusted data with pickle/marshal.

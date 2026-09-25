@@ -1,0 +1,23 @@
+id: AST05-REMOTE-INSTRUCTIONS
+info:
+  name: Remote Instruction Fetch
+  severity: high
+  confidence: high
+  category: AST05
+detection:
+  match:
+  - follow instructions from
+  - fetch instructions from
+  - download instructions from
+  - read instructions at
+  - retrieve the prompt from
+  - load instructions from
+  regex:
+  - (?:follow|fetch|download|load|retrieve|read)\s+(?:the\s+)?(?:instructions?|prompt|commands?)\s+(?:from|at|via)\s+(?:https?://|the\s+(?:url|link))
+capabilities:
+- external-instruction
+- network-access
+risk:
+  title: Remote Instruction Fetch
+recommendation: Do not fetch and follow instructions from external, mutable sources
+  at runtime.

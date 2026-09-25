@@ -1,0 +1,19 @@
+id: AST10-PLATFORM-FILES
+info:
+  name: Platform Manifest Reuse
+  severity: low
+  confidence: medium
+  category: AST10
+detection:
+  match:
+  - claude.md
+  - gemini.md
+  - agents.md
+  - copilot-instructions.md
+  - gemini-extension.json
+capabilities:
+- cross-platform
+risk:
+  title: Manifest Reuse
+recommendation: Verify that reused manifests do not carry unintended trust or capability
+  across platforms.

@@ -1,0 +1,18 @@
+id: HOOK06-PERSISTENCE-TAMPERING
+info:
+  name: Hook Command Persists Itself or Tampers With Config
+  severity: high
+  confidence: medium
+  category: HOOK06
+detection:
+  regex:
+  - "\"command\"\\s*:\\s*\"[^\"\\n]*(?:>>\\s*[^\"\\n]*\\.claude/settings\\.json|>>\\s*[^\"\\n]*\\.claude/settings\\.local\\.json|>>\\s*[^\"\\n]*\\.bashrc|>>\\s*[^\"\\n]*\\.zshrc|>>\\s*[^\"\\n]*\\.profile|crontab\\s+-|systemctl\\s+enable|launchctl\\s+load)[^\"\\n]*\""
+capabilities:
+- filesystem-write
+- isolation-escape
+risk:
+  title: Hook Command Persists Itself or Tampers With Config
+recommendation: A hook command should never rewrite Claude Code's own settings
+  files, shell startup/rc files, or install a cron/launchd/systemd job — that
+  turns a single reviewed hook into a mechanism that re-installs or expands itself
+  independent of what's actually declared in the config a reviewer sees.

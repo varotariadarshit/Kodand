@@ -1,0 +1,17 @@
+id: HOOK08-SENSITIVE-FILE-ACCESS
+info:
+  name: Hook Reads a Sensitive Credential File
+  severity: high
+  confidence: medium
+  category: HOOK08
+detection:
+  regex:
+  - "\"command\"\\s*:\\s*\"[^\"\\n]*(?:\\.ssh/id_rsa|\\.aws/credentials|\\.netrc|\\.env)[^\"\\n]*\""
+capabilities:
+- credential-access
+- filesystem-read
+risk:
+  title: Hook Reads a Sensitive Credential File
+recommendation: A hook that reads SSH keys, cloud credentials, or .env files on
+  every tool event has no legitimate reason to do so automatically — review why
+  and restrict the hook's command to only what it needs.

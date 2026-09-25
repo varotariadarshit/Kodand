@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Kodand — Sign In</title>
+<link rel="icon" href="/static/favicon.ico">
+<link rel="apple-touch-icon" href="/static/kodand-touch-icon.png">
+<style>
+:root{--bg0:#05060a;--bg1:#0b1020;--glass:rgba(255,255,255,.05);--glass-strong:rgba(255,255,255,.08);--border:rgba(255,255,255,.14);--txt:#e8ecf6;--muted:#9aa4bd;--shadow:0 8px 40px rgba(0,0,0,.45);--accent:#8ab4ff;--field:rgba(0,0,0,.28)}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;display:flex;flex-direction:column;color:var(--txt);font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  background:radial-gradient(1200px 700px at 12% -10%,rgba(99,102,241,.22),transparent 60%),radial-gradient(1000px 600px at 110% 10%,rgba(236,72,153,.16),transparent 55%),radial-gradient(900px 700px at 50% 120%,rgba(16,185,129,.14),transparent 55%),linear-gradient(160deg,var(--bg1),var(--bg0));
+  background-attachment:fixed}
+a{color:var(--accent)}
+.shell{display:grid;grid-template-columns:1.1fr 1fr;flex:1 1 auto;width:100%;max-width:1400px;margin:0 auto;align-items:center;gap:28px;padding:60px 24px}
+@media(max-width:960px){.shell{grid-template-columns:1fr;padding:32px 18px}}
+.brand-col{padding:20px}
+.brand-col img.logo-lockup{width:100%;max-width:340px;display:block;margin:0 auto 18px}
+.hero-h{font-size:1.7rem;font-weight:800;text-align:center;margin:0 0 10px}
+.hero-p{color:var(--muted);text-align:center;max-width:480px;margin:0 auto 34px}
+.features{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;max-width:640px;margin:0 auto}
+@media(max-width:640px){.features{grid-template-columns:repeat(2,1fr)}}
+.feature{text-align:center}
+.feature .ring{width:56px;height:56px;margin:0 auto 10px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:var(--glass);border:1px solid var(--border)}
+.feature svg{width:26px;height:26px}
+.feature h4{font-size:.72rem;letter-spacing:.06em;text-transform:uppercase;margin:0 0 4px}
+.feature p{font-size:.78rem;color:var(--muted);margin:0}
+.card{background:var(--glass);backdrop-filter:blur(16px) saturate(140%);-webkit-backdrop-filter:blur(16px) saturate(140%);border:1px solid var(--border);border-radius:20px;box-shadow:var(--shadow);padding:38px 40px;max-width:460px;margin:0 auto;width:100%}
+.card h1{margin:0 0 6px;font-size:1.5rem}
+.card .sub{color:var(--muted);margin:0 0 28px}
+label{display:block;font-size:.82rem;font-weight:600;margin:0 0 6px}
+.field{position:relative;margin-bottom:18px}
+.field input{width:100%;background:var(--field);border:1px solid var(--border);border-radius:10px;color:var(--txt);padding:12px 14px 12px 40px;font:inherit;outline:none}
+.field input:focus{border-color:var(--accent)}
+.field .ic{position:absolute;left:13px;top:50%;transform:translateY(-50%);width:16px;height:16px;color:var(--muted)}
+.field .eye{position:absolute;right:12px;top:50%;transform:translateY(-50%);width:18px;height:18px;color:var(--muted);cursor:pointer;background:none;border:0;padding:0}
+.btn{width:100%;cursor:pointer;border:0;border-radius:10px;padding:13px 16px;font-weight:700;font-size:.95rem;color:#fff;margin-top:4px}
+.btn-primary{background:linear-gradient(90deg,#3b82f6,#7c3aed)}
+.btn-primary:hover{filter:brightness(1.06)}
+.footnote{text-align:center;color:var(--muted);font-size:.86rem;margin-top:22px}
+.hide{display:none!important}
+.notice{border:1px solid var(--border);background:var(--glass-strong);border-radius:10px;padding:11px 13px;font-size:.86rem;margin-bottom:18px;line-height:1.5}
+.notice code{background:rgba(138,180,255,.16);border-radius:5px;padding:1px 6px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.notice.err{border-color:rgba(244,84,112,.5);background:rgba(244,84,112,.12);color:#ffb3c0}
+.pagefoot{text-align:center;color:var(--muted);font-size:.82rem;padding:0 20px 30px;display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap}
+.pagefoot svg{width:16px;height:16px;flex:none}
+</style>
+</head>
+<body>
+<div class="shell">
+  <div class="brand-col">
+    <img class="logo-lockup" src="/static/kodand-logo-full.png" alt="Kodand — Agentic AI Skills Threat and Risk Assessment">
+    <h2 class="hero-h">Secure Skills. Intelligent Agents. Resilient Future.</h2>
+    <p class="hero-p">Kodand scans and evaluates Agentic AI Skills configurations to identify threats, assess risks, and empower secure, trustworthy AI ecosystems.</p>
+    <div class="features">
+      <div class="feature"><div class="ring" style="color:#38bdf8"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r=".5" fill="currentColor"/></svg></div><h4>Threat Detection</h4><p>Identify security weaknesses</p></div>
+      <div class="feature"><div class="ring" style="color:#818cf8"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z"/><path d="M9 12l2 2 4-4"/></svg></div><h4>Risk Assessment</h4><p>Analyze and prioritize security risks</p></div>
+      <div class="feature"><div class="ring" style="color:#a78bfa"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3a4 4 0 014 4v1a4 4 0 010 8v1a4 4 0 01-8 0v-1a4 4 0 010-8V7a4 4 0 014-4z"/><path d="M8 9h.01M16 9h.01M8 15h.01M16 15h.01"/></svg></div><h4>AI-Powered</h4><p>Leverage AI to scan and correlate findings</p></div>
+      <div class="feature"><div class="ring" style="color:#f472b6"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="11" width="6" height="5" rx="1"/><path d="M10 11V9a2 2 0 014 0v2"/><circle cx="12" cy="12" r="9"/></svg></div><h4>Secure by Design</h4><p>Build and maintain secure AI systems</p></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div id="signInView">
+      <h1>Welcome back</h1>
+      <p class="sub">Sign in to continue to Kodand</p>
+
+      <div class="notice hide" id="defaultHint">
+        First run — sign in with the default password <code>kodand</code>, then set your own.
+      </div>
+      <div class="notice err hide" id="loginError"></div>
+
+      <form id="loginForm">
+        <label for="password">Password</label>
+        <div class="field">
+          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 018 0v3"/></svg>
+          <input id="password" type="password" placeholder="••••••••••••" autocomplete="current-password" required>
+          <button type="button" class="eye" id="eyeToggle" aria-label="Show password">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>
+          </button>
+        </div>
+        <button type="submit" class="btn btn-primary">Sign In</button>
+      </form>
+      <p class="footnote"><a href="#" id="forgotLink">Forgot password?</a></p>
+      <div class="notice hide" id="forgotHint">
+        Run <code>kodand password reset</code> in a terminal on the machine running Kodand.
+        Add <code>--to-default</code> to go back to the default password instead.
+      </div>
+    </div>
+
+    <div id="changeView" class="hide">
+      <h1>Set a new password</h1>
+      <p class="sub">The default password has to be replaced before you can continue.</p>
+
+      <div class="notice err hide" id="changeError"></div>
+
+      <form id="changeForm">
+        <label for="newPassword">New password</label>
+        <div class="field">
+          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 018 0v3"/></svg>
+          <input id="newPassword" type="password" placeholder="At least 8 characters" autocomplete="new-password" minlength="8" required>
+        </div>
+
+        <label for="confirmPassword">Confirm new password</label>
+        <div class="field">
+          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 018 0v3"/></svg>
+          <input id="confirmPassword" type="password" placeholder="Re-enter it" autocomplete="new-password" minlength="8" required>
+        </div>
+
+        <button type="submit" class="btn btn-primary">Set password &amp; continue</button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<div class="pagefoot">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z"/><path d="M9 12l2 2 4-4"/></svg>
+  <span>Kodand secures what powers your agents. &middot; &copy; 2026 Kodand. All rights reserved.</span>
+</div>
+
+<script>
+// Password show/hide
+const pw = document.getElementById('password');
+document.getElementById('eyeToggle').addEventListener('click', () => {
+  pw.type = pw.type === 'password' ? 'text' : 'password';
+});
+
+const $ = (id) => document.getElementById(id);
+function showError(el, msg){ el.textContent = msg; el.classList.remove('hide'); }
+function clearError(el){ el.textContent = ''; el.classList.add('hide'); }
+
+async function api(url, body){
+  const r = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.detail || r.statusText);
+  return data;
+}
+
+// The default-password hint only exists while the default is still in force, so it disappears
+// on its own once a real password is set — no stale "your password is kodand" banner.
+// Deliberately does NOT jump straight to the change form for an already-authenticated session
+// that still owes a password change: the change endpoint re-verifies the current password, and
+// after a reload we no longer have it. Signing in again is the honest path back into the flow.
+fetch('/api/auth/status').then(r => r.json()).then(s => {
+  if (s.default_password_active) $('defaultHint').classList.remove('hide');
+}).catch(() => {});
+
+// Terminal-only on purpose: a reset must never be possible over HTTP.
+$('forgotLink').addEventListener('click', (e) => {
+  e.preventDefault();
+  $('forgotHint').classList.toggle('hide');
+});
+
+function showChangeView(){
+  $('signInView').classList.add('hide');
+  $('changeView').classList.remove('hide');
+  $('newPassword').focus();
+}
+
+// The password used to sign in, kept only long enough to authorise the change below — the
+// change endpoint re-verifies it server-side rather than trusting the session alone.
+let signedInWith = '';
+
+$('loginForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  clearError($('loginError'));
+  try {
+    const res = await api('/api/auth/login', {password: pw.value});
+    signedInWith = pw.value;
+    if (res.must_change_password) { showChangeView(); return; }
+    window.location.href = '/';
+  } catch (err) {
+    showError($('loginError'), err.message || 'Sign in failed');
+  }
+});
+
+$('changeForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  clearError($('changeError'));
+  const next = $('newPassword').value, confirm = $('confirmPassword').value;
+  if (next !== confirm) { showError($('changeError'), 'The two passwords do not match.'); return; }
+  try {
+    await api('/api/auth/change-password', {current_password: signedInWith, new_password: next});
+    window.location.href = '/';
+  } catch (err) {
+    showError($('changeError'), err.message || 'Could not set the new password');
+  }
+});
+</script>
+</body>
+</html>

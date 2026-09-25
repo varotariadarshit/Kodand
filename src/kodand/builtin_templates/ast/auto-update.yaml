@@ -1,0 +1,20 @@
+id: AST07-AUTO-UPDATE
+info:
+  name: Silent Auto-Update
+  severity: medium
+  confidence: medium
+  category: AST07
+detection:
+  match:
+  - auto-update
+  - self-update
+  - silently update
+  - update in the background
+  - auto upgrade
+  regex:
+  - (?:auto|self|silent(?:ly)?)[\s-]?(?:update|upgrad(?:e|ing))\b
+capabilities:
+- update-drift
+risk:
+  title: Silent Auto-Update
+recommendation: Require explicit, logged, and reviewed updates instead of silent self-update.

@@ -1,0 +1,24 @@
+id: AST01-REVERSE-SHELL
+info:
+  name: Reverse Shell Payload
+  severity: critical
+  confidence: high
+  category: AST01
+detection:
+  match:
+  - /dev/tcp/
+  - bash -i
+  - nc -e
+  - ncat -e
+  - reverse shell
+  - mkfifo /tmp
+  regex:
+  - (?:python[23]?\s+-c|(?:perl|ruby)\s+-e)\b[^\n]{0,60}socket
+  - exec\s+\d+<>\s*/dev/tcp/
+capabilities:
+- shell-execution
+- network-access
+risk:
+  title: Reverse Shell
+recommendation: Treat reverse-shell primitives in skill content as malicious; block
+  and investigate.

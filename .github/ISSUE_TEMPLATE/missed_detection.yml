@@ -1,0 +1,29 @@
+name: Missed detection
+description: A real risk Kodand didn't flag
+labels: ["missed-detection", "detection"]
+body:
+  - type: markdown
+    attributes:
+      value: Confirmed misses become benchmark samples. If the miss lets a scanned repository attack the machine running Kodand, report it privately as a vulnerability instead.
+  - type: textarea
+    id: sample
+    attributes:
+      label: Smallest file that reproduces it
+      description: A skill file, MCP config, hook config or script containing the risky pattern.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: risk
+    attributes:
+      label: What the risk is
+      description: What an attacker gets, and which category you'd expect (e.g. AST01, MCP04, HOOK08) if you know.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: kodand version
+      description: Output of `kodand version`
+    validations:
+      required: true

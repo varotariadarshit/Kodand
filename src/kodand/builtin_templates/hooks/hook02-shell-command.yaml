@@ -1,0 +1,17 @@
+id: HOOK02-SHELL-COMMAND
+info:
+  name: Hook Runs a Raw Shell Command
+  severity: high
+  confidence: medium
+  category: HOOK02
+detection:
+  regex:
+  - "\"command\"\\s*:\\s*\"(?:/bin/)?(?:ba)?sh\\s+-c\\b"
+capabilities:
+- shell-execution
+risk:
+  title: Hook Runs a Raw Shell Command
+recommendation: Prefer a fixed, reviewed command/script over `sh -c`/`bash -c` in
+  a hook — a shell invocation interprets metacharacters in whatever gets concatenated
+  into the command string, which is a much larger attack surface than a single
+  binary with fixed arguments.

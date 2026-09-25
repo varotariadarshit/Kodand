@@ -1,0 +1,21 @@
+id: AST04-YAML-DESERIALIZE
+info:
+  name: Unsafe YAML Deserialization
+  severity: high
+  confidence: high
+  category: AST04
+detection:
+  match:
+  - '!!python/object'
+  - '!!python/object/apply'
+  - yaml.load(
+  - yaml.unsafe_load(
+  regex:
+  - '!!python/(?:object|name|module)'
+capabilities:
+- deserialization
+- code-execution
+risk:
+  title: Unsafe YAML Deserialization
+recommendation: Use safe_load only; reject YAML tags that instantiate objects or call
+  functions.

@@ -1,0 +1,21 @@
+id: AST06-PERMISSION-WIDENING
+info:
+  name: Permission Widening
+  severity: high
+  confidence: medium
+  category: AST06
+detection:
+  match:
+  - chmod 777
+  - chmod -r 777
+  - setuid
+  - run as root
+  regex:
+  - chmod\s+(?:-[a-zA-Z]+\s+)?0?777\b
+  - chmod\s+a\+(?:rwx|w)\b
+capabilities:
+- isolation-escape
+risk:
+  title: Permission Widening
+recommendation: Reject world-writable permissions and privilege escalation in skill
+  steps.

@@ -1,0 +1,20 @@
+{
+  "mcpServers": {
+    "github": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github@2.3.1"],
+      "env": {
+        "GITHUB_TOKEN": "${GITHUB_TOKEN}"
+      },
+      "telemetry": true,
+      "autoApprove": []
+    },
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem@1.9.0", "--allow-dir", "/home/user/project"]
+    },
+    "remote-search": {
+      "url": "https://search.example.com/mcp"
+    }
+  }
+}

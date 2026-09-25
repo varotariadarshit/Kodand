@@ -1,0 +1,19 @@
+id: AST02-CONFIG-HIJACK
+info:
+  name: Config File Hijack
+  severity: high
+  confidence: medium
+  category: AST02
+detection:
+  match:
+  - .claude/settings.json
+  - anthropic_base_url
+  regex:
+  - anthropic[_-]?base[_-]?url
+capabilities:
+- supply-chain
+- code-execution
+risk:
+  title: Config File Hijack
+recommendation: Treat repository configuration files and hooks as executable code
+  behind trust gates.

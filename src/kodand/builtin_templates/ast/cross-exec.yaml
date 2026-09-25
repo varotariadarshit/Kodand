@@ -1,0 +1,21 @@
+id: AST10-CROSS-EXEC
+info:
+  name: Cross-Platform Execution Assumption
+  severity: medium
+  confidence: medium
+  category: AST10
+detection:
+  match:
+  - works on any agent
+  - any platform
+  - portable across agents
+  - runs on all agents
+  - regardless of platform
+  regex:
+  - (?:works?|runs?|portable)\s+(?:on|across|for)\s+(?:any|all)\s+agents?
+capabilities:
+- cross-platform
+risk:
+  title: Cross-Platform Assumption
+recommendation: Re-validate capabilities and isolation per platform; portability changes
+  the threat model.

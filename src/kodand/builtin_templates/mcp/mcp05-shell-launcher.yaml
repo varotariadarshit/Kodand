@@ -1,0 +1,17 @@
+id: MCP05-SHELL-LAUNCHER
+info:
+  name: MCP Server Launched via Shell Interpreter
+  severity: high
+  confidence: medium
+  category: MCP05
+detection:
+  regex:
+  - "\"command\"\\s*:\\s*\"(?:/bin/)?(?:ba)?sh\""
+capabilities:
+- shell-execution
+risk:
+  title: MCP Server Launched via Shell Interpreter
+recommendation: Launch MCP servers via a fixed, reviewed binary or interpreter path
+  rather than a raw shell (bash/sh), which will execute whatever `args` string is
+  concatenated at launch time. Maps to OWASP MCP Top 10 2025, MCP05 — Command Injection
+  and Execution.

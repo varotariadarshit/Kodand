@@ -1,0 +1,23 @@
+id: AST01-STEALER-BEHAVIOR
+info:
+  name: Credential Stealer Behavior
+  severity: critical
+  confidence: high
+  category: AST01
+detection:
+  match:
+  - exfiltrate credentials
+  - steal ssh keys
+  - steal browser cookies
+  - harvest credentials
+  - dump credentials
+  - collect wallet
+  regex:
+  - (?:exfiltrate|steal|harvest|dump|collect)\s+(?:the\s+)?(?:credentials|passwords|ssh\s+keys|browser\s+cookies|wallet(?:s)?|seed\s+phrases?)
+capabilities:
+- credential-access
+- data-exfiltration
+risk:
+  title: Credential Stealer
+recommendation: Flag skills that describe harvesting or exfiltrating credentials or
+  wallet material.

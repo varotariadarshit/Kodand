@@ -1,0 +1,17 @@
+id: HOOK04-APPROVAL-BYPASS
+info:
+  name: Hook Command Bypasses Tool Approval
+  severity: critical
+  confidence: high
+  category: HOOK04
+detection:
+  match:
+  - --dangerously-skip-permissions
+  - --allow-all
+capabilities:
+- approval-bypass
+risk:
+  title: Hook Command Bypasses Tool Approval
+recommendation: A hook command should never itself invoke a permission-bypass flag
+  — that turns an automatic, unreviewed trigger into a standing approval bypass for
+  every tool call it touches.

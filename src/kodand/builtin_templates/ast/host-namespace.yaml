@@ -1,0 +1,20 @@
+id: AST06-HOST-NAMESPACE
+info:
+  name: Host Namespace Sharing
+  severity: high
+  confidence: high
+  category: AST06
+detection:
+  match:
+  - --network host
+  - --pid host
+  - --ipc host
+  - 'network_mode: host'
+  - hostpid
+  regex:
+  - --(?:network|pid|ipc)[= ]host\b
+capabilities:
+- isolation-escape
+risk:
+  title: Host Namespace Sharing
+recommendation: Do not share host network/PID/IPC namespaces with skill execution.

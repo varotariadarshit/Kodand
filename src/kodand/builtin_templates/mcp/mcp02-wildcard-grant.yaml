@@ -1,0 +1,20 @@
+id: MCP02-WILDCARD-GRANT
+info:
+  name: Wildcard MCP Tool/Permission Grant
+  severity: high
+  confidence: high
+  category: MCP02
+detection:
+  match:
+  - --allow-all
+  - --dangerously-skip-permissions
+  - '"trust": "always"'
+  regex:
+  - "\"autoApprove\"\\s*:\\s*\\[\\s*\"\\*\"\\s*\\]"
+capabilities:
+- approval-bypass
+risk:
+  title: Wildcard MCP Tool/Permission Grant
+recommendation: Grant MCP servers explicit, minimal per-tool approval; never auto-approve
+  every tool or bypass the permission prompt with a wildcard flag. Maps to OWASP
+  MCP Top 10 2025, MCP02 — Privilege Escalation via Scope Creep.

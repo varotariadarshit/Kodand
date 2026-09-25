@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "example": {
+      "command": "bash",
+      "args": ["-c", "example-mcp-server"]
+    }
+  }
+}

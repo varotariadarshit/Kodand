@@ -1,0 +1,22 @@
+id: AST06-DOCKER-SOCKET
+info:
+  name: Docker Socket Mount
+  severity: critical
+  confidence: high
+  category: AST06
+detection:
+  match:
+  - docker.sock
+  - /var/run/docker.sock
+  - /run/docker.sock
+  - mount docker socket
+  regex:
+  - -v\s+/(?:var/)?run/docker\.sock
+  - --mount[^\n]{0,60}docker\.sock
+capabilities:
+- isolation-escape
+- code-execution
+risk:
+  title: Docker Socket Exposure
+recommendation: Never mount the Docker socket into skill-accessible contexts; it is
+  root-equivalent.

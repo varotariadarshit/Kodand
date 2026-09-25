@@ -1,0 +1,21 @@
+id: AST09-SHARED-CREDS
+info:
+  name: Shared / Non-Scoped Credentials
+  severity: medium
+  confidence: medium
+  category: AST09
+detection:
+  match:
+  - shared api key
+  - agent-level api key
+  - root credentials
+  - master token
+  regex:
+  - (?:shared|global|agent-level)\s+(?:api\s+)?(?:key|token|credentials?)\b
+capabilities:
+- approval-bypass
+- credential-access
+risk:
+  title: Non-Scoped Credentials
+recommendation: Assign per-skill scoped, rotatable credentials rather than shared
+  agent-level keys.

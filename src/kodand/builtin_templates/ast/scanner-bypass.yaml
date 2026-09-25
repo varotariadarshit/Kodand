@@ -1,0 +1,21 @@
+id: AST08-SCANNER-BYPASS
+info:
+  name: Scanner Bypass Instruction
+  severity: high
+  confidence: high
+  category: AST08
+detection:
+  match:
+  - bypass the scanner
+  - bypass security scan
+  - evade the scanner
+  - avoid detection
+  - bypassed every scanner
+  - skip the scan
+  regex:
+  - (?:bypass|evade|avoid|circumvent|defeat)\s+(?:the\s+)?(?:scanner|security\s+scan|static\s+analysis|detection)\b
+capabilities:
+- scanner-evasion
+risk:
+  title: Scanner Bypass
+recommendation: Flag any content that describes evading or disabling security scanners.

@@ -1,0 +1,25 @@
+id: AST09-DESTRUCTIVE-OPS
+info:
+  name: Unguarded Destructive Operation
+  severity: high
+  confidence: medium
+  category: AST09
+detection:
+  match:
+  - rm -rf
+  - drop table
+  - truncate table
+  - delete from
+  - force push
+  - git push -f
+  regex:
+  - rm\s+-[a-z]*r[a-z]*f[a-z]*\b
+  - rm\s+-[a-z]*f[a-z]*r[a-z]*\b
+  - DROP\s+(?:TABLE|DATABASE|SCHEMA)\b
+capabilities:
+- approval-bypass
+- filesystem-write
+risk:
+  title: Destructive Operation
+recommendation: Gate destructive operations behind confirmation and least-privilege
+  scoping.

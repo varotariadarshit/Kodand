@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Kodand — Scan Files</title>
+<link rel="icon" href="/static/favicon.ico">
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
+:root{
+  --bg:#0A0D16; --surface:#121728; --surface-2:#171D31; --border:#262C42; --border-soft:#1E2438;
+  --text:#E8EAF2; --text-secondary:#8C93AC; --text-faint:#565D78;
+  --accent:#6366F1; --accent-soft-bg:#1E2050;
+  --amber:#E7B549; --amber-bg:#332A14; --orange:#E8935A; --orange-bg:#332015;
+  --red:#F2555F; --red-bg:#331519; --green:#4ADE80; --green-bg:#0F2E1E; --cyan:#66C7D9;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font-family:'Inter',-apple-system,BlinkMacSystemFont,sans-serif}
+a{color:var(--accent);text-decoration:none}
+code{font-family:'IBM Plex Mono',ui-monospace,Menlo,Consolas,monospace}
+.small{font-size:12px} .muted{color:var(--text-secondary)}
+.wrap{max-width:1320px;margin:0 auto;padding:26px 32px 60px}
+.topline{display:flex;align-items:center;gap:10px;margin-bottom:18px;font-size:13px}
+.crumb{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:18px}
+.crumb b{font-size:19px;font-weight:600}
+.crumb .id{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--cyan);background:#0F2226;border:1px solid #1B3339;padding:4px 10px;border-radius:14px}
+.panel{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:20px 24px;margin-bottom:20px}
+.badge{font-size:11.5px;font-weight:600;padding:6px 13px;border-radius:20px;white-space:nowrap;display:inline-flex;align-items:center;gap:6px}
+.badge.critical{background:var(--red-bg);color:var(--red)}
+.badge.high{background:var(--orange-bg);color:var(--orange)}
+.badge.medium{background:var(--amber-bg);color:var(--amber)}
+.badge.low{background:#122a33;color:var(--cyan)}
+.badge.informational{background:var(--surface-2);color:var(--text-secondary)}
+.badge.risk{background:var(--accent-soft-bg);color:#fff}
+.summary-row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.layout{display:grid;grid-template-columns:320px 1fr;gap:20px;align-items:start}
+@media(max-width:900px){.layout{grid-template-columns:1fr}}
+.file-list{max-height:78vh;overflow:auto;border:1px solid var(--border);border-radius:10px;padding:6px}
+.file-row{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;cursor:pointer;border-left:3px solid transparent;font-size:12.5px}
+.file-row:hover{background:var(--surface-2)}
+.file-row.selected{background:var(--accent-soft-bg)}
+.file-row .fp{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.file-row .fcount{font-size:10.5px;font-weight:700;padding:2px 7px;border-radius:10px;flex:none}
+.viewer{background:var(--surface);border:1px solid var(--border);border-radius:14px;overflow:hidden}
+.viewer-head{padding:14px 18px;border-bottom:1px solid var(--border-soft);display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap}
+.viewer-head .fname{font-family:'IBM Plex Mono',monospace;font-size:13px}
+.viewer-body{max-height:78vh;overflow:auto;background:var(--bg)}
+.code-line{display:flex;font-family:'IBM Plex Mono',monospace;font-size:12.5px;line-height:1.6}
+.code-line .ln{width:54px;text-align:right;padding:0 14px 0 0;color:var(--text-faint);user-select:none;flex:none}
+.code-line .txt{white-space:pre-wrap;word-break:break-word;flex:1;padding-right:14px}
+.code-line.sev-critical{background:var(--red-bg);border-left:3px solid var(--red)}
+.code-line.sev-high{background:var(--orange-bg);border-left:3px solid var(--orange)}
+.code-line.sev-medium{background:var(--amber-bg);border-left:3px solid var(--amber)}
+.code-line.sev-low{background:#122a33;border-left:3px solid var(--cyan)}
+.code-line.sev-informational{background:var(--surface-2);border-left:3px solid var(--text-faint)}
+.code-line .note{margin-left:auto;padding:0 10px 0 0;flex:none}
+.code-line.target-line{outline:2px solid var(--accent);outline-offset:-2px;animation:target-pulse 1.6s ease-out 1}
+@keyframes target-pulse{0%{background:var(--accent-soft-bg)}100%{}}
+.empty{color:var(--text-faint);text-align:center;padding:26px;font-size:13px}
+.hide{display:none!important}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="topline"><a href="#" id="back-link">← Back to Kodand console</a></div>
+  <div class="crumb">
+    <b id="proj-name">–</b><span class="muted">/</span><b id="scan-label">–</b>
+    <span class="id" id="scan-id">–</span>
+  </div>
+
+  <div class="panel">
+    <div class="summary-row">
+      <span class="badge risk" id="risk-badge">–</span>
+      <span class="badge critical" id="cnt-critical">0 Critical</span>
+      <span class="badge high" id="cnt-high">0 High</span>
+      <span class="badge medium" id="cnt-medium">0 Medium</span>
+      <span class="badge low" id="cnt-low">0 Low</span>
+      <span class="badge informational" id="cnt-info">0 Info</span>
+      <span class="small muted" id="cnt-total">0 findings total</span>
+      <span class="small muted" id="cnt-created"></span>
+    </div>
+  </div>
+
+  <div class="layout">
+    <div>
+      <div class="small muted" style="margin-bottom:8px">Files with findings are highlighted by highest severity. Click a file to view it.</div>
+      <div class="file-list" id="file-list"></div>
+    </div>
+    <div class="viewer">
+      <div class="viewer-head">
+        <span class="fname" id="viewer-fname">Select a file…</span>
+        <span id="viewer-findings"></span>
+      </div>
+      <div class="viewer-body" id="viewer-body"><div class="empty">Select a file from the list to view its content.</div></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const api=(u)=>fetch(u).then(async r=>{const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.detail||r.statusText);return j;});
+const params=new URLSearchParams(location.search);
+const PID=params.get('project'), SID=params.get('scan');
+const OPEN_PATH=params.get('path'); // deep link from a report's "Open File" button
+const OPEN_LINE=params.get('line')?parseInt(params.get('line'),10):null;
+document.getElementById('back-link').href='/#p='+encodeURIComponent(PID||'');
+
+const SEV_ORDER=['critical','high','medium','low','informational'];
+function sevRank(s){const i=SEV_ORDER.indexOf(s);return i===-1?SEV_ORDER.length:i;}
+function sevLabel(s){return s?(s.charAt(0).toUpperCase()+s.slice(1)):'Informational';}
+
+let FILE_FINDINGS={}; // path -> {maxSeverity, items:[{finding_id,title,severity,lines:[...]}]}
+let CUR_FILE=null;
+
+async function boot(){
+  if(!PID||!SID){document.getElementById('file-list').innerHTML='<div class="empty">Missing project or scan id in the URL.</div>';return;}
+  try{
+    const [projects,scans,files,analysis]=await Promise.all([
+      api('/api/projects'),
+      api(`/api/projects/${PID}/scans`),
+      api(`/api/projects/${PID}/scans/${SID}/files`),
+      api(`/api/projects/${PID}/scans/${SID}/download/json`),
+    ]);
+    const proj=projects.find(p=>p.id===PID);
+    const scan=scans.find(s=>s.id===SID);
+    document.getElementById('proj-name').textContent=proj?proj.name:PID;
+    document.getElementById('scan-label').textContent=scan?(scan.label||scan.repository):SID;
+    document.getElementById('scan-id').textContent=SID;
+    if(scan){
+      document.getElementById('cnt-created').textContent='created '+scan.created;
+      const risk=scan.overall_risk||'—';
+      const rb=document.getElementById('risk-badge'); rb.textContent='Overall risk: '+risk;
+      const sev=scan.severity||{};
+      document.getElementById('cnt-critical').textContent=(sev.critical||0)+' Critical';
+      document.getElementById('cnt-high').textContent=(sev.high||0)+' High';
+      document.getElementById('cnt-medium').textContent=(sev.medium||0)+' Medium';
+      document.getElementById('cnt-low').textContent=(sev.low||0)+' Low';
+      document.getElementById('cnt-info').textContent=(sev.informational||0)+' Info';
+      document.getElementById('cnt-total').textContent=(scan.findings||0)+' finding'+(scan.findings===1?'':'s')+' total'+(scan.suppressed?` · ${scan.suppressed} suppressed`:'');
+    }
+    buildFindingMap(analysis.findings||[]);
+    renderFileList(files);
+  }catch(e){
+    document.getElementById('file-list').innerHTML='<div class="empty">'+escapeHtml(e.message)+'</div>';
+  }
+}
+
+function buildFindingMap(findings){
+  FILE_FINDINGS={};
+  for(const f of findings){
+    const linesByFile={};
+    for(const occ of (f.occurrences||[])){
+      (linesByFile[occ.file] ||= new Set()).add(occ.line);
+    }
+    for(const path of (f.affected_files||[])){
+      const entry = FILE_FINDINGS[path] ||= {maxSeverity:'informational', items:[]};
+      entry.items.push({finding_id:f.finding_id, title:f.title, severity:f.severity, lines:[...(linesByFile[path]||[])]});
+      if(sevRank(f.severity) < sevRank(entry.maxSeverity)) entry.maxSeverity=f.severity;
+    }
+  }
+}
+
+function renderFileList(files){
+  const el=document.getElementById('file-list');
+  if(!files.length){el.innerHTML='<div class="empty">No source files — deleted via Delete Artifacts, or this scan predates the Files feature.</div>';return;}
+  const sorted=[...files].sort((a,b)=>{
+    const fa=FILE_FINDINGS[a.path], fb=FILE_FINDINGS[b.path];
+    const ra=fa?sevRank(fa.maxSeverity):99, rb=fb?sevRank(fb.maxSeverity):99;
+    if(ra!==rb)return ra-rb;
+    return a.path.localeCompare(b.path);
+  });
+  el.innerHTML=sorted.map(f=>{
+    const hit=FILE_FINDINGS[f.path];
+    const border=hit?`var(--${sevBorderVar(hit.maxSeverity)})`:'transparent';
+    const badge=hit?`<span class="fcount badge ${hit.maxSeverity}">${hit.items.length}</span>`:'';
+    return `<div class="file-row" style="border-left-color:${border}" data-path="${escapeAttr(f.path)}">
+      <span class="fp" title="${escapeAttr(f.path)}">${escapeHtml(f.path)}</span>${badge}
+    </div>`;
+  }).join('');
+  el.querySelectorAll('.file-row').forEach(row=>row.addEventListener('click', ()=>openFile(row.dataset.path, row)));
+  // deep link from a report's "Open File" button takes priority over the auto-open-first-hit default
+  if(OPEN_PATH){
+    const row=[...el.querySelectorAll('.file-row')].find(r=>r.dataset.path===OPEN_PATH);
+    if(row){ openFile(OPEN_PATH, row, OPEN_LINE); return; }
+  }
+  // auto-open the first flagged file, if any
+  const firstHit = sorted.find(f=>FILE_FINDINGS[f.path]);
+  if(firstHit){
+    const row=[...el.querySelectorAll('.file-row')].find(r=>r.dataset.path===firstHit.path);
+    if(row) openFile(firstHit.path, row);
+  }
+}
+function sevBorderVar(sev){return {critical:'red',high:'orange',medium:'amber',low:'cyan',informational:'text-faint'}[sev]||'text-faint';}
+function escapeHtml(s){return s.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
+function escapeAttr(s){return s.replace(/[&"<>]/g,c=>({'&':'&amp;','"':'&quot;','<':'&lt;','>':'&gt;'}[c]));}
+
+async function openFile(path, rowEl, targetLine){
+  CUR_FILE=path;
+  document.querySelectorAll('.file-row').forEach(r=>r.classList.remove('selected'));
+  if(rowEl)rowEl.classList.add('selected');
+  document.getElementById('viewer-fname').textContent=path;
+  const hit=FILE_FINDINGS[path];
+  document.getElementById('viewer-findings').innerHTML = hit
+    ? hit.items.map(i=>`<span class="badge ${i.severity}" title="${escapeAttr(i.title)}">${sevLabel(i.severity)}</span>`).join(' ')
+    : '';
+  const body=document.getElementById('viewer-body');
+  body.innerHTML='<div class="empty">Loading…</div>';
+  try{
+    const r=await fetch(`/api/projects/${PID}/scans/${SID}/files/content?path=${encodeURIComponent(path)}`);
+    const text=await r.text();
+    if(!r.ok){body.innerHTML='<div class="empty">'+escapeHtml(text)+'</div>';return;}
+    renderCode(text, hit, targetLine);
+  }catch(e){body.innerHTML='<div class="empty">Error: '+escapeHtml(e.message)+'</div>';}
+}
+
+function renderCode(text, hit, targetLine){
+  const lineSev = {}; // line number -> most severe hitting it
+  if(hit){
+    for(const item of hit.items){
+      for(const ln of item.lines){
+        if(!lineSev[ln] || sevRank(item.severity) < sevRank(lineSev[ln].severity)){
+          lineSev[ln] = {severity:item.severity, title:item.title};
+        }
+      }
+    }
+  }
+  const lines=text.split('\n');
+  const body=document.getElementById('viewer-body');
+  let firstHitLn=null;
+  body.innerHTML=lines.map((txt,i)=>{
+    const ln=i+1; const sev=lineSev[ln];
+    if(sev && firstHitLn===null) firstHitLn=ln;
+    const isTarget = targetLine && ln===targetLine;
+    const cls='code-line'+(sev?` sev-${sev.severity}`:'')+(isTarget?' target-line':'');
+    const note=sev?`<span class="note badge ${sev.severity}" title="${escapeAttr(sev.title)}">${sevLabel(sev.severity)}</span>`:'';
+    return `<div class="${cls}" id="ln-${ln}"><span class="ln">${ln}</span><span class="txt">${escapeHtml(txt)||' '}</span>${note}</div>`;
+  }).join('');
+  if(targetLine){
+    const el=document.getElementById('ln-'+targetLine);
+    if(el){ el.scrollIntoView({block:'center'}); return; }
+  }
+  if(firstHitLn){
+    const el=document.getElementById('ln-'+firstHitLn);
+    if(el) el.scrollIntoView({block:'center'});
+  }
+}
+
+boot();
+</script>
+</body>
+</html>

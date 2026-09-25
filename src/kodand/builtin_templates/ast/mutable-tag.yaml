@@ -1,0 +1,20 @@
+id: AST07-MUTABLE-TAG
+info:
+  name: Mutable Image / Ref Tag
+  severity: medium
+  confidence: high
+  category: AST07
+detection:
+  match:
+  - :latest
+  - '@main'
+  - '@master'
+  - '@head'
+  - /releases/latest
+  regex:
+  - :latest\b
+capabilities:
+- update-drift
+risk:
+  title: Mutable Reference
+recommendation: Pin images and refs to immutable digests/tags to prevent silent drift.
