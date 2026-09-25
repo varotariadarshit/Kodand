@@ -1,13 +1,10 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/varotariadarshit/Kodand/master/docs/assets/kodand-icon.png" alt="Kodand logo" width="140">
+  <img src="docs/assets/kodand-icon.png" alt="Kodand logo" width="140">
 </p>
 
 # Kodand — Agentic AI Skills Threat and Risk Assessment
 
 <p align="center">
-  <a href="https://github.com/varotariadarshit/Kodand/actions/workflows/ci.yml"><img src="https://github.com/varotariadarshit/Kodand/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="https://pypi.org/project/kodand/"><img src="https://img.shields.io/pypi/v/kodand" alt="PyPI"></a>
-  <img src="https://img.shields.io/pypi/pyversions/kodand" alt="Python versions">
   <a href="https://github.com/varotariadarshit/Kodand/blob/master/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT license"></a>
 </p>
 
@@ -23,7 +20,7 @@ kodand ui                                      # or review findings in the web c
 ```
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/varotariadarshit/Kodand/master/docs/assets/demo.gif" alt="Kodand scanning a vulnerable agent lab: CLI output, the web console, findings, the Files viewer and live MCP status" width="860">
+  <img src="docs/assets/demo.gif" alt="Kodand scanning a vulnerable agent lab: CLI output, the web console, findings, the Files viewer and live MCP status" width="860">
 </p>
 
 **Accuracy:** on OpenA2A's deliberately vulnerable
@@ -219,7 +216,7 @@ they pick up the new build.
 
 ## CLI
 
-<img src="https://raw.githubusercontent.com/varotariadarshit/Kodand/master/docs/assets/cli-analyze.svg" alt="kodand analyze output" width="720">
+<img src="docs/assets/cli-analyze.svg" alt="kodand analyze output" width="720">
 
 ```bash
 kodand templates list                 # 64 YAML templates, with Literals + Regex columns
