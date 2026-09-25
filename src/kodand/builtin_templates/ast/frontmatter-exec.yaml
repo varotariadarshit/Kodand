@@ -1,0 +1,20 @@
+id: AST04-FRONTMATTER-EXEC
+info:
+  name: Frontmatter Execution Trick
+  severity: high
+  confidence: medium
+  category: AST04
+detection:
+  match:
+  - os.system
+  - subprocess.run
+  - subprocess.popen
+  - '!!python'
+  regex:
+  - subprocess\.(?:run|popen|call|check_output|check_call)\s*\(
+capabilities:
+- code-execution
+risk:
+  title: Frontmatter Execution
+recommendation: Parse frontmatter as inert data; never evaluate embedded execution
+  directives.

@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "primary": {
+      "command": "npx",
+      "args": ["-y", "shared-server@1.0.0"]
+    },
+    "primary-backup": {
+      "command": "npx",
+      "args": ["-y", "shared-server@1.0.0"]
+    }
+  }
+}

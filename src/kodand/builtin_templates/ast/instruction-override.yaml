@@ -1,0 +1,22 @@
+id: AST01-INSTRUCTION-OVERRIDE
+info:
+  name: Instruction Override Attempt
+  severity: high
+  confidence: high
+  category: AST01
+detection:
+  match:
+  - ignore previous instructions
+  - ignore all previous instructions
+  - disregard prior instructions
+  - override system instructions
+  - disregard the system prompt
+  - forget your instructions
+  regex:
+  - (?:ignore|disregard|forget|override)\s+(?:all\s+)?(?:the\s+)?(?:previous|prior|earlier|system|your|operator'?s?)\s+instructions?
+capabilities:
+- instruction-override
+risk:
+  title: Instruction Override
+recommendation: Reject skill content that attempts to override system, safety, or
+  operator instructions.

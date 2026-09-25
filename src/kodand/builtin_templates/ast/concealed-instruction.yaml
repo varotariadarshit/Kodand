@@ -1,0 +1,24 @@
+id: AST01-CONCEALED-INSTRUCTION
+info:
+  name: Instruction Concealed from the User
+  severity: high
+  confidence: medium
+  category: AST01
+detection:
+  match:
+  - without telling the user
+  - without informing the user
+  - without notifying the user
+  regex:
+  - (?:do\s+not|don'?t|never)\s+(?:mention|tell|reveal|disclose|inform)\b[^.\n]{0,60}\b(?:to|from)\s+the\s+user
+  - (?:do\s+not|don'?t|never)\s+(?:mention|reveal|disclose)\s+(?:these|this|the|any)\s+instructions?
+  - (?:hide|conceal|keep)\s+(?:this|these|it)\s+(?:secret\s+|hidden\s+)?from\s+the\s+user
+  - you\s+are\s+now\s+in\s+[\w -]{2,30}\s+mode
+  - '(?<![\w-])system\s+(?:instruction|override|directive)s?\s*:'
+capabilities:
+- instruction-override
+risk:
+  title: Concealed Instruction
+recommendation: Treat content that tells the agent to act secretly, switch into a special "mode", or hide
+  what it does from the user as a prompt-injection payload. This includes text stored by a tool and returned
+  to the agent later. Remove it, and never pass tool-returned text to the agent as instructions.

@@ -1,0 +1,23 @@
+id: AST05-EXTERNAL-URL
+info:
+  name: External Content Source
+  severity: medium
+  confidence: high
+  category: AST05
+detection:
+  match:
+  - raw.githubusercontent.com
+  - gist.github.com
+  - pastebin.com
+  - notion.so
+  - docs.google.com
+  regex:
+  - https?://(?!(?:10|127|0)\.|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.|169\.254\.)(?:\d{1,3}\.){3}\d{1,3}(?::\d+)?
+  - https?://(?:bit\.ly|tinyurl\.com|t\.co|goo\.gl)/
+capabilities:
+- external-instruction
+- network-access
+risk:
+  title: External Content Source
+recommendation: Treat externally referenced content as untrusted; pin and review before
+  use.

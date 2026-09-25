@@ -1,0 +1,19 @@
+id: MCP06-INTENT-OVERRIDE-CONFIG
+info:
+  name: System Prompt Override in MCP Server Config
+  severity: high
+  confidence: medium
+  category: MCP06
+detection:
+  regex:
+  - "\"(?:SYSTEM_PROMPT|OVERRIDE_INSTRUCTIONS|PRE_PROMPT)[A-Z_]*\"\\s*:\\s*\""
+  - "--system-prompt(?:-file)?[= ]"
+capabilities:
+- instruction-override
+- external-instruction
+risk:
+  title: System Prompt Override in MCP Server Config
+recommendation: An MCP server config should never carry its own system-prompt override
+  — that's the agent runtime's responsibility, not a tool's. Treat any server-supplied
+  attempt to redefine the agent's instructions as hijacking the intent flow. Maps
+  to OWASP MCP Top 10 2025, MCP06 — Intent Flow Subversion.

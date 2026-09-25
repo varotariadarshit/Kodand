@@ -1,0 +1,17 @@
+id: MCP07-INSECURE-TRANSPORT
+info:
+  name: Unencrypted Remote MCP Server Transport
+  severity: medium
+  confidence: medium
+  category: MCP07
+detection:
+  regex:
+  - "\"url\"\\s*:\\s*\"http://(?!localhost|127\\.0\\.0\\.1|\\[::1\\])"
+capabilities:
+- network-access
+risk:
+  title: Unencrypted Remote MCP Server Transport
+recommendation: Connect to remote MCP servers over TLS (https/wss) with an authenticated
+  session — a plaintext http:// endpoint can't authenticate the server or protect
+  tool calls/responses in transit. Maps to OWASP MCP Top 10 2025, MCP07 — Insufficient
+  Authentication and Authorization.

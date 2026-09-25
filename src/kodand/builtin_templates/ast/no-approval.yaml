@@ -1,0 +1,21 @@
+id: AST09-NO-APPROVAL
+info:
+  name: Consequential Action Without Approval
+  severity: high
+  confidence: high
+  category: AST09
+detection:
+  match:
+  - without approval
+  - automatically deploy
+  - auto-merge
+  - auto-publish
+  - delete without confirmation
+  - push to production automatically
+  regex:
+  - (?:automatically|auto)[\s-]?(?:deploy|publish|merge|delete)\b
+capabilities:
+- approval-bypass
+risk:
+  title: Missing Approval Gate
+recommendation: Require explicit human approval for deploy/publish/delete/merge actions.

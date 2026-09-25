@@ -1,0 +1,35 @@
+name: False positive
+description: Kodand flagged something that isn't a real risk
+labels: ["false-positive", "detection"]
+body:
+  - type: markdown
+    attributes:
+      value: Confirmed false positives become benchmark samples, so the fix stays fixed. Please remove anything secret from what you paste.
+  - type: input
+    id: rule
+    attributes:
+      label: Rule ID
+      description: From the report or `analysis.json`, e.g. `AST04-DYNAMIC-EVAL`
+    validations:
+      required: true
+  - type: textarea
+    id: sample
+    attributes:
+      label: Smallest file that reproduces it
+      description: The flagged lines plus enough context to see why they're safe.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why it's not a risk
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: kodand version
+      description: Output of `kodand version`
+    validations:
+      required: true

@@ -1,0 +1,22 @@
+id: AST01-SECURITY-BYPASS
+info:
+  name: Security Control Bypass
+  severity: high
+  confidence: high
+  category: AST01
+detection:
+  match:
+  - bypass security
+  - disable safety
+  - disable the guardrail
+  - turn off safety
+  - ignore safety checks
+  - skip the approval
+  regex:
+  - (?:disable|bypass|turn\s+off|skip|ignore)\s+(?:the\s+)?(?:safety|security|guardrail)s?\b
+capabilities:
+- instruction-override
+risk:
+  title: Security Control Bypass
+recommendation: Do not allow skills to instruct the agent to disable or bypass safety
+  and security controls.

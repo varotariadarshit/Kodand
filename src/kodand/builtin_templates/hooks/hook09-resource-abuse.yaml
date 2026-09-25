@@ -1,0 +1,21 @@
+id: HOOK09-RESOURCE-ABUSE
+info:
+  name: Hook Command Shaped Like a Resource-Exhaustion Attack
+  severity: medium
+  confidence: medium
+  category: HOOK09
+detection:
+  match:
+  - ":(){ :|:& };:"
+  regex:
+  - "\"command\"\\s*:\\s*\"[^\"\\n]*(?:while\\s+true|dd\\s+if=/dev/zero|dd\\s+if=/dev/random|yes\\s+[^\"\\n]*>)[^\"\\n]*\""
+capabilities:
+- resource-abuse
+- shell-execution
+risk:
+  title: Hook Command Shaped Like a Resource-Exhaustion Attack
+recommendation: This hook command matches a known denial-of-service shape (fork
+  bomb, unbounded loop, or disk/memory exhaustion primitive). Since a hook can run
+  on every tool call, an unbounded or resource-exhausting command here can degrade
+  or crash the agent runtime far more reliably than the same command run once
+  manually — remove it or bound its resource usage explicitly.

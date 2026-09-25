@@ -1,0 +1,21 @@
+id: AST06-PRIVILEGED-CONTAINER
+info:
+  name: Privileged Container
+  severity: high
+  confidence: high
+  category: AST06
+detection:
+  match:
+  - --privileged
+  - 'privileged: true'
+  - cap_add
+  - --cap-add=all
+  - securitycontext
+  - 'allowprivilegeescalation: true'
+  regex:
+  - privileged\s*[:=]\s*true
+capabilities:
+- isolation-escape
+risk:
+  title: Privileged Container
+recommendation: Never run skill workloads in privileged containers or with broad capabilities.

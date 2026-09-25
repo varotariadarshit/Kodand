@@ -1,0 +1,15 @@
+id: AST02-DEPENDENCY-CONFUSION
+info:
+  name: Dependency Confusion
+  severity: high
+  confidence: medium
+  category: AST02
+detection:
+  match:
+  - --index-url
+  - extra-index-url
+capabilities:
+- supply-chain
+risk:
+  title: Dependency Confusion
+recommendation: Pin dependencies to immutable hashes and use an internal mirror/allowlist.

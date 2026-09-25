@@ -1,0 +1,18 @@
+id: MCP03-TOOL-DESCRIPTION-INJECTION
+info:
+  name: Hidden Instruction in Tool Description
+  severity: critical
+  confidence: medium
+  category: MCP03
+detection:
+  regex:
+  - "\"description\"\\s*:\\s*\"[^\"\\n]*(?:ignore|disregard|forget|override)[^\"\\n]*instructions"
+capabilities:
+- external-instruction
+- instruction-override
+risk:
+  title: Hidden Instruction in Tool Description
+recommendation: Treat MCP tool names/descriptions as untrusted, agent-facing content
+  — validate them the same way you would validate any other prompt input, and reject
+  tool definitions that try to redirect the agent's instructions. Maps to OWASP MCP
+  Top 10 2025, MCP03 — Tool Poisoning.

@@ -1,0 +1,21 @@
+id: AST07-NO-INTEGRITY
+info:
+  name: Missing Integrity Check
+  severity: medium
+  confidence: low
+  category: AST07
+detection:
+  match:
+  - skip checksum
+  - no signature check
+  - ignore hash
+  - disable verification
+  regex:
+  - (?:skip|disable|ignore|bypass)\s+(?:the\s+)?(?:checksum|signature|hash)\s*(?:check|verification)?\b
+capabilities:
+- update-drift
+- scanner-evasion
+risk:
+  title: Missing Integrity Check
+recommendation: Verify checksums/signatures on every update; never skip integrity
+  checks.

@@ -1,0 +1,21 @@
+id: AST09-NO-AUDIT
+info:
+  name: No Audit Logging
+  severity: medium
+  confidence: low
+  category: AST09
+detection:
+  match:
+  - disable logging
+  - no audit
+  - do not log
+  - suppress logs
+  - clear logs
+  regex:
+  - (?:disable|suppress|clear|skip)\s+(?:the\s+)?(?:audit\s+)?logs?\b
+capabilities:
+- approval-bypass
+risk:
+  title: Missing Audit Trail
+recommendation: Ensure all skill actions are logged; never suppress or clear audit
+  logs.

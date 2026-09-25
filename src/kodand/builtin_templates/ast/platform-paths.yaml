@@ -1,0 +1,20 @@
+id: AST10-PLATFORM-PATHS
+info:
+  name: Platform-Specific Config Path
+  severity: low
+  confidence: high
+  category: AST10
+detection:
+  match:
+  - .claude/
+  - .gemini/
+  - .cursor/
+  - .codex/
+  - .copilot/
+  - .openai/
+capabilities:
+- cross-platform
+risk:
+  title: Platform-Specific Path
+recommendation: Note platform-coupled paths when assessing skill portability and trust
+  boundaries.

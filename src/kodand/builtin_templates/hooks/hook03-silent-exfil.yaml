@@ -1,0 +1,17 @@
+id: HOOK03-SILENT-EXFIL
+info:
+  name: Hook Makes an Unreviewed Network Call
+  severity: high
+  confidence: medium
+  category: HOOK03
+detection:
+  regex:
+  - "\"command\"\\s*:\\s*\"[^\"\\n]*(?:curl|wget)[^\"\\n]*https?://[^\"\\n]*\""
+capabilities:
+- data-exfiltration
+- network-access
+risk:
+  title: Hook Makes an Unreviewed Network Call
+recommendation: Hooks that fire automatically on tool events should never make outbound
+  network calls without explicit, reviewed approval — treat this the same as any
+  other unapproved data path out of the agent runtime.

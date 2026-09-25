@@ -1,0 +1,20 @@
+id: AST08-PADDING-EVASION
+info:
+  name: Padding / Truncation Evasion
+  severity: high
+  confidence: medium
+  category: AST08
+detection:
+  match:
+  - 100000 newlines
+  - leading newlines
+  - padding block
+  - truncate the file
+  - hidden after
+  - large whitespace
+capabilities:
+- scanner-evasion
+risk:
+  title: Padding Evasion
+recommendation: Detect oversized padding designed to truncate scanners; scan full
+  content.

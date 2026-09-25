@@ -1,0 +1,15 @@
+id: AST08-BINARY-HIDING
+info:
+  name: Payload Hidden in Binary/Archive
+  severity: high
+  confidence: medium
+  category: AST08
+detection:
+  match:
+  - precompiled bytecode
+  - inside the archive
+capabilities:
+- scanner-evasion
+risk:
+  title: Binary Hiding
+recommendation: Unpack and scan archives and bytecode; do not skip binary formats.

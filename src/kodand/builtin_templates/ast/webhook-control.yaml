@@ -1,0 +1,21 @@
+id: AST05-WEBHOOK-CONTROL
+info:
+  name: Webhook / Callback Control
+  severity: medium
+  confidence: medium
+  category: AST05
+detection:
+  match:
+  - callback url
+  - discord.com/api/webhooks
+  - hooks.slack.com
+  regex:
+  - webhook[^\n]{0,60}https?://
+  - (?:api\.telegram\.org/bot|outlook\.office\.com/webhook)
+capabilities:
+- external-instruction
+- network-access
+- data-exfiltration
+risk:
+  title: Webhook Control
+recommendation: Restrict outbound webhooks; validate destinations against an allowlist.

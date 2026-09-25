@@ -1,0 +1,25 @@
+id: AST04-DYNAMIC-EVAL
+info:
+  name: Dynamic Code Evaluation
+  severity: high
+  confidence: high
+  category: AST04
+detection:
+  match:
+  - __import__(
+  - os.system(
+  regex:
+  - (?<![\w.$])eval\s*\(
+  - (?<![\w.$])exec\s*\(
+  - \bbuiltins\.(?:eval|exec)\s*\(
+  - (?<![\w.$])compile\s*\([^)\n]*['"]exec['"]
+  - \bnew\s+Function\s*\(
+  - eval\s*\(\s*(?:base64|codecs)\.
+  - getattr\s*\(\s*__builtins__
+  - getattr\s*\(\s*(?:builtins|os|subprocess)\s*,
+capabilities:
+- code-execution
+risk:
+  title: Dynamic Code Evaluation
+recommendation: Avoid eval/exec on skill-controlled input; use explicit, validated
+  dispatch.

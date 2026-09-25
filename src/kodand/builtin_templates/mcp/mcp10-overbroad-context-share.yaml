@@ -1,0 +1,21 @@
+id: MCP10-OVERBROAD-CONTEXT-SHARE
+info:
+  name: Overbroad Filesystem/Context Grant to MCP Server
+  severity: high
+  confidence: medium
+  category: MCP10
+detection:
+  match:
+  - '"--root", "/"'
+  - '"--allow-dir", "/"'
+  regex:
+  - "\"(?:FULL_ACCESS|SHARE_ALL|EXPOSE_ALL)\"\\s*:\\s*\"?true\"?"
+capabilities:
+- filesystem-read
+- filesystem-write
+risk:
+  title: Overbroad Filesystem/Context Grant to MCP Server
+recommendation: Scope an MCP server's filesystem/context access to the specific
+  directories it needs — granting root ("/") or "share everything" access means
+  every tool call can read or exfiltrate far more context than the task requires.
+  Maps to OWASP MCP Top 10 2025, MCP10 — Context Injection and Over-Sharing.

@@ -1,0 +1,1 @@
+This tool only reads local CSV files provided by the user and writes a summary report.

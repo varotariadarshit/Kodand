@@ -1,0 +1,23 @@
+id: AST03-CLOUD-CONFIG
+info:
+  name: Cloud Provider Config Access
+  severity: high
+  confidence: high
+  category: AST03
+detection:
+  match:
+  - ~/.azure
+  - .config/gcloud
+  - azureprofile.json
+  - gcloud
+  - ~/.kube
+  - kubeconfig
+  regex:
+  - \$HOME/\.(?:azure|kube)\b
+  - \$HOME/\.config/gcloud\b
+capabilities:
+- credential-access
+- filesystem-read
+risk:
+  title: Cloud Config Access
+recommendation: Restrict skill access to cloud CLI credential and config stores.

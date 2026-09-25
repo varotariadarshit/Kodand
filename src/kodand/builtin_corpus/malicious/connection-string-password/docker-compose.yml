@@ -1,0 +1,5 @@
+services:
+  reports:
+    image: reports:1.4.2
+    environment:
+      - DATABASE_URL=postgresql://report_admin:Tr0ub4dor-prod-22@db.internal:5432/reports

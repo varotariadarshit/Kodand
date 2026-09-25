@@ -1,0 +1,20 @@
+id: AST06-SANDBOX-DISABLE
+info:
+  name: Sandbox Disable
+  severity: high
+  confidence: medium
+  category: AST06
+detection:
+  match:
+  - disable sandbox
+  - no sandbox
+  - --no-sandbox
+  - disable isolation
+  - seccomp=unconfined
+  regex:
+  - seccomp\s*[:=]\s*unconfined
+capabilities:
+- isolation-escape
+risk:
+  title: Sandbox Disable
+recommendation: Do not permit skills to disable sandboxing or seccomp/AppArmor profiles.

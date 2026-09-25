@@ -1,0 +1,22 @@
+id: AST03-SSH-KEYS
+info:
+  name: SSH Private Key Access
+  severity: high
+  confidence: high
+  category: AST03
+detection:
+  match:
+  - ~/.ssh
+  - .ssh/id_rsa
+  - id_ed25519
+  - id_rsa
+  - known_hosts
+  - authorized_keys
+  regex:
+  - '-----BEGIN [A-Z ]*PRIVATE KEY-----'
+capabilities:
+- credential-access
+- filesystem-read
+risk:
+  title: SSH Key Access
+recommendation: Skills must not read SSH private keys or host trust files.

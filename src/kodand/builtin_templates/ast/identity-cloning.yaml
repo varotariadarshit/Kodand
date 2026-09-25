@@ -1,0 +1,23 @@
+id: AST01-IDENTITY-CLONING
+info:
+  name: Agent Identity Cloning
+  severity: high
+  confidence: medium
+  category: AST01
+detection:
+  match:
+  - soul.md
+  - memory.md
+  - persona definition
+  - clone the agent
+  - impersonate the agent
+  - replicate the agent
+  regex:
+  - (?:clone|impersonate|replicate|duplicate)\s+(?:the\s+|this\s+)?agent'?s?\s+(?:identity|persona|memory)
+capabilities:
+- filesystem-read
+- identity-tampering
+risk:
+  title: Identity Cloning
+recommendation: Protect agent identity artifacts (SOUL.md, MEMORY.md, persona files)
+  from read/clone by skills.

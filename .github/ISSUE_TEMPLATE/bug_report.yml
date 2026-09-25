@@ -1,0 +1,38 @@
+name: Bug report
+description: Something in the CLI, web console or MCP server doesn't work
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what you expected
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. kodand analyze ./my-skills --html report.html
+        2. ...
+    validations:
+      required: true
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options: [CLI, Web console, MCP server, Reports, Install]
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: kodand version and OS
+      description: e.g. `kodand version` output, Ubuntu 24.04, Python 3.12
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Error output
+      render: text

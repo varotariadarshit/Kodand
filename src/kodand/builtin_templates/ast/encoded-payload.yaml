@@ -1,0 +1,24 @@
+id: AST08-ENCODED-PAYLOAD
+info:
+  name: Encoded Payload
+  severity: high
+  confidence: medium
+  category: AST08
+detection:
+  match:
+  - decode and execute
+  regex:
+  - eval\s*\(\s*atob\s*\(
+  - (?:eval|exec)\s*\(\s*base64\.b64decode\s*\(
+  - eval\s*\(\s*Buffer\.from\([^,\n]+,\s*['"]base64['"]\)
+  - (?:eval|exec)\s*\(\s*(?:bytes\.)?fromhex\s*\(
+  - (?:eval|exec)\s*\([^)\n]{0,80}rot13
+  - base64\s+-d[^\n]{0,60}\|\s*(?:bash|sh)
+  - (?:xxd|fromhex)[^\n]{0,60}\|\s*(?:bash|sh)
+capabilities:
+- scanner-evasion
+- code-execution
+risk:
+  title: Encoded Payload
+recommendation: Decode and inspect encoded blobs; encoded-then-executed content is
+  high risk.

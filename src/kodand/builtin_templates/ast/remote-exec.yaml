@@ -1,0 +1,22 @@
+id: AST02-REMOTE-EXEC
+info:
+  name: Remote Content Execution
+  severity: critical
+  confidence: high
+  category: AST02
+detection:
+  match:
+  - curl attacker
+  - 'wget -q -o- '
+  - iwr -useb
+  - 'curl -s '
+  - invoke-expression
+  regex:
+  - curl\s+\S+\s*\|\s*(?:bash|sh)
+capabilities:
+- network-access
+- shell-execution
+risk:
+  title: Remote Content Execution
+recommendation: Block skills that download and execute remote content; require pinned,
+  reviewed sources.

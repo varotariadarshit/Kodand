@@ -1,0 +1,18 @@
+id: AST02-TYPOSQUAT
+info:
+  name: Typosquatted Package Reference
+  severity: high
+  confidence: medium
+  category: AST02
+detection:
+  match:
+  - yutube-dl
+  - python-sqlite
+  - requsts
+  - beautifulsop
+  - urllib4
+capabilities:
+- supply-chain
+risk:
+  title: Typosquatting
+recommendation: Verify all package names against canonical registries to catch typosquatting.

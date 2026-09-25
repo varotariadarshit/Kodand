@@ -1,0 +1,20 @@
+id: AST02-UNVERIFIED-SOURCE
+info:
+  name: Unverified Install Source
+  severity: medium
+  confidence: medium
+  category: AST02
+detection:
+  match:
+  - clone this repo
+  - git clone http
+  - download from
+  - install from the url
+  regex:
+  - (?:download|fetch|install)\s+(?:it\s+|the\s+(?:skill|package|script|payload)\s+)?from\s+(?:this|the|a)\s+(?:url|link|site|repo)
+capabilities:
+- supply-chain
+risk:
+  title: Unverified Source
+recommendation: Require provenance, signing, and review for any externally sourced
+  skill or package.

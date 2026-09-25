@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          allow-prereleases: true
+      - name: Install
+        run: pip install -e ".[dev,all]"
+      - name: Lint
+        run: ruff check .
+      - name: Test
+        run: pytest -q
+      - name: Benchmark
+        run: kodand bench --no-banner
+
+  package:
+    # installs the built wheel (not the source tree) into a clean venv, so files
+    # missing from the package — e.g. dotfile corpus samples — fail here
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build
+        run: |
+          pip install build
+          python -m build
+      - name: Install wheel in a clean venv and smoke-test it
+        run: |
+          python -m venv /tmp/wheel-env
+          /tmp/wheel-env/bin/pip install "$(ls dist/*.whl)[all]"
+          cd /tmp
+          /tmp/wheel-env/bin/kodand version
+          /tmp/wheel-env/bin/kodand bench --no-banner | tee bench.txt
+          grep -E "OVERALL.*1\.00.*1\.00.*1\.00" bench.txt
+          /tmp/wheel-env/bin/python -c "import kodand.mcpserver, kodand.webui.server, kodand.codeanalysis.js_ast"

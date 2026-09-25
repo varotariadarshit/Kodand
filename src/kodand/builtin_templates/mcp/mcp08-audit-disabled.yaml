@@ -1,0 +1,17 @@
+id: MCP08-AUDIT-DISABLED
+info:
+  name: Audit/Telemetry Explicitly Disabled
+  severity: medium
+  confidence: medium
+  category: MCP08
+detection:
+  regex:
+  - "\"(?:telemetry|audit|logging)\"\\s*:\\s*(?:false|\"disabled\"|\"off\"|\"none\")"
+  - "\"(?:DISABLE_TELEMETRY|NO_AUDIT|DISABLE_LOGGING)\"\\s*:\\s*\"?(?:1|true)\"?"
+capabilities:
+- scanner-evasion
+risk:
+  title: Audit/Telemetry Explicitly Disabled
+recommendation: Keep audit logging/telemetry enabled for MCP servers — disabling
+  it removes the record needed to investigate an incident after the fact. Maps to
+  OWASP MCP Top 10 2025, MCP08 — Lack of Audit and Telemetry.

@@ -1,0 +1,21 @@
+id: AST07-UNPINNED-INSTALL
+info:
+  name: Unpinned Install
+  severity: medium
+  confidence: medium
+  category: AST07
+detection:
+  match:
+  - install latest
+  - pip install -u
+  - npm install -g
+  - '@latest'
+  - 'curl -l '
+  regex:
+  - pip\s+install\s+\S+\s+--upgrade\b
+capabilities:
+- update-drift
+- supply-chain
+risk:
+  title: Unpinned Install
+recommendation: Pin exact versions; avoid 'latest' installs that auto-upgrade.
