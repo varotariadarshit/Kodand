@@ -307,9 +307,10 @@ MCP_PRESENCE_RETENTION = 30 * 24 * 3600  # keep stopped records this long so "la
 
 def mcp_servers_dir() -> Path:
     d = workspace_root() / "mcp_servers"; d.mkdir(exist_ok=True); return d
-def touch_mcp_server(pid: int, version: str, started_at: str, stopped: bool = False) -> None:
+def touch_mcp_server(pid: int, version: str, started_at: str, stopped: bool = False, agent: bool = False) -> None:
     _write_json_atomic(mcp_servers_dir() / f"{pid}.json",
-                       {"pid": pid, "version": version, "started_at": started_at, "last_seen": _now(), "stopped": stopped})
+                       {"pid": pid, "version": version, "started_at": started_at, "last_seen": _now(),
+                        "stopped": stopped, "agent": agent})
 def _pid_alive(pid) -> bool:
     if os.name == "nt":
         return True  # os.kill(pid, 0) terminates the process on Windows; fall back to the TTL alone
@@ -352,6 +353,239 @@ def read_mcp_status(stale_after: int = 45) -> dict:
     if last_seen_age != float("inf"):
         out["seconds_ago"] = int(last_seen_age)
     return out
+
+
+# --- Claude Agent: verification jobs the web console hands to the user's own Claude Code session ---
+#
+# The console can't call Claude Code (MCP only lets the client call the server), so it leaves jobs
+# here and `kodand mcp --agent` — the MCP server inside a session started by `kodand agent` — pushes
+# them into that session as channel events, one at a time. Claude answers through the ack_job /
+# complete_job / fail_job tools. Two OS processes touch these files (console and MCP server), so
+# every change goes through _agent_lock. Claude Code gives no delivery receipt for a channel event,
+# so an un-acked job is re-queued after AGENT_ACK_TIMEOUT and the agent is reported "not receiving".
+
+AGENT_ACK_TIMEOUT = 60        # a pushed job nobody acked in this long never reached Claude
+AGENT_JOB_TIMEOUT = 15 * 60   # an acked job with no verdict in this long is failed
+AGENT_MAX_ATTEMPTS = 3        # pushes before an un-acked job gives up
+AGENT_OPEN_STATES = ("queued", "dispatched", "acked")
+AGENT_IN_FLIGHT_STATES = ("dispatched", "acked")
+AGENT_VERDICTS = {"true_positive": "True positive", "false_positive": "False positive", "needs_review": "Needs review"}
+_SEVERITY_RANK = {"critical": 4, "high": 3, "medium": 2, "low": 1, "informational": 0}
+_AGENT_JOB_ID_RE = re.compile(r"^[0-9a-f]{12}$")
+_AGENT_LOCK_STALE = 10
+
+
+def agent_dir() -> Path:
+    d = workspace_root() / "agent"; (d / "jobs").mkdir(parents=True, exist_ok=True); return d
+def _agent_job_path(jid: str) -> Path:
+    if not isinstance(jid, str) or not _AGENT_JOB_ID_RE.match(jid):
+        raise FileNotFoundError("job not found")
+    return agent_dir() / "jobs" / f"{jid}.json"
+def _agent_state_path() -> Path:
+    return agent_dir() / "state.json"
+
+
+class _agent_lock:
+    """Cross-process lock for the job files: O_EXCL create works the same on every OS. A lock
+    left by a killed process is broken after _AGENT_LOCK_STALE seconds."""
+    def __enter__(self):
+        self.path = agent_dir() / ".lock"
+        deadline = time.monotonic() + 2 * _AGENT_LOCK_STALE
+        while True:
+            try:
+                os.close(os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)); return self
+            except FileExistsError:
+                try:
+                    if time.time() - self.path.stat().st_mtime > _AGENT_LOCK_STALE:
+                        self.path.unlink(missing_ok=True); continue
+                except FileNotFoundError:
+                    continue
+                if time.monotonic() > deadline:
+                    raise TimeoutError("Claude Agent job store is locked")
+                time.sleep(0.02)
+    def __exit__(self, *exc):
+        self.path.unlink(missing_ok=True)
+
+
+def _load_agent_jobs() -> list:
+    out = []
+    for p in (agent_dir() / "jobs").glob("*.json"):
+        job = _read_json(p)
+        if job: out.append(job)
+    return sorted(out, key=lambda j: j.get("seq", 0))  # creation order; `created` only has 1s resolution
+def _save_agent_job(job: dict) -> dict:
+    job["updated"] = _now(); _write_json_atomic(_agent_job_path(job["id"]), job); return job
+def _agent_state(**fields) -> None:
+    _write_json_atomic(_agent_state_path(), {**(_read_json(_agent_state_path()) or {}), **fields})
+
+
+def get_agent_job(jid: str) -> dict:
+    job = _read_json(_agent_job_path(jid))
+    if job is None: raise FileNotFoundError("job not found")
+    return job
+
+
+def list_agent_jobs(pid: str | None = None, sid: str | None = None, limit: int = 200) -> list:
+    """Newest first. Expiry runs first, so a job whose session died shows as re-queued, not stuck."""
+    expire_agent_jobs()
+    jobs = [j for j in _load_agent_jobs() if (pid is None or j["project_id"] == pid) and (sid is None or j["scan_id"] == sid)]
+    return list(reversed(jobs))[:limit]
+
+
+def require_mcp_shared(pid: str) -> None:
+    if not json.loads((_project_dir(pid) / "project.json").read_text()).get("mcp_shared"):
+        # Claude reads the finding through the MCP tools, which refuse unshared projects
+        raise ValueError("Share this project with MCP agents first (toggle on the project page) — "
+                         "Claude Agent reads findings through Kodand's MCP tools.")
+
+
+def _new_agent_job(pid: str, sid: str, finding: dict, origin: str) -> dict:
+    return {"id": uuid.uuid4().hex[:12], "kind": "verify_finding", "project_id": pid, "scan_id": sid,
+            "finding_id": finding["finding_id"], "title": finding.get("title", ""),
+            "severity": finding.get("severity", ""), "origin": origin, "status": "queued",
+            "created": _now(), "seq": time.time_ns(), "attempts": 0}
+
+
+def enqueue_agent_job(pid: str, sid: str, finding_id: str, origin: str = "manual") -> dict:
+    """Queue one finding for Claude Agent. A finding that already has an open job gets that job back."""
+    require_mcp_shared(pid)
+    finding = find_finding(pid, sid, finding_id)
+    with _agent_lock():
+        for j in _load_agent_jobs():
+            if (j["project_id"], j["scan_id"], j["finding_id"]) == (pid, sid, finding_id) and j["status"] in AGENT_OPEN_STATES:
+                return j
+        return _save_agent_job(_new_agent_job(pid, sid, finding, origin))
+
+
+def select_findings_for_agent(pid: str, sid: str, min_severity: str | None = None, max_findings: int | None = None) -> list:
+    """Findings a bulk/auto run would queue, most severe first. No filter means every finding."""
+    if min_severity and min_severity not in _SEVERITY_RANK:
+        raise ValueError(f"Unknown severity '{min_severity}'")
+    floor = _SEVERITY_RANK.get(min_severity or "informational", 0)
+    findings = [f for f in _analysis(pid, sid).get("findings", []) if _SEVERITY_RANK.get(f.get("severity"), 0) >= floor]
+    findings.sort(key=lambda f: -_SEVERITY_RANK.get(f.get("severity"), 0))
+    return findings[:max_findings] if max_findings else findings
+
+
+def enqueue_scan_verification(pid: str, sid: str, min_severity: str | None = None,
+                              max_findings: int | None = None, origin: str = "auto") -> list:
+    require_mcp_shared(pid)
+    findings = select_findings_for_agent(pid, sid, min_severity, max_findings)
+    with _agent_lock():
+        existing = _load_agent_jobs()
+        open_ids = {j["finding_id"] for j in existing
+                    if j["project_id"] == pid and j["scan_id"] == sid and j["status"] in AGENT_OPEN_STATES}
+        return [_save_agent_job(_new_agent_job(pid, sid, f, origin)) for f in findings if f["finding_id"] not in open_ids]
+
+
+def expire_agent_jobs() -> None:
+    """Re-queue pushes nobody acked and jobs whose session died; fail acked jobs that ran too long."""
+    with _agent_lock():
+        for j in _load_agent_jobs():
+            if j["status"] not in AGENT_IN_FLIGHT_STATES:
+                continue
+            claimer_gone = not _pid_alive(j.get("claimed_by"))
+            if j["status"] == "dispatched" and (claimer_gone or _age(j.get("dispatched_at")) > AGENT_ACK_TIMEOUT):
+                if not claimer_gone:
+                    _agent_state(unacked_at=_now())
+                reason = "Claude Agent session ended before picking it up" if claimer_gone else \
+                         "Claude Agent session didn't acknowledge it — is it running with the channel enabled?"
+                if j.get("attempts", 0) >= AGENT_MAX_ATTEMPTS:
+                    j.update(status="failed", error=reason, finished=_now())
+                else:
+                    j.update(status="queued", error=reason)
+                j.pop("claimed_by", None); _save_agent_job(j)
+            elif j["status"] == "acked" and (claimer_gone or _age(j.get("acked_at")) > AGENT_JOB_TIMEOUT):
+                j.update(status="failed", finished=_now(),
+                         error="Claude Agent session ended mid-verification" if claimer_gone else "Timed out waiting for a verdict")
+                _save_agent_job(j)
+
+
+def claim_next_agent_job(agent_id: str) -> dict | None:
+    """The next job for this session to push, or None while it still has one in flight. Manual
+    requests go before auto-verify batches so a click in the UI doesn't wait behind a whole scan."""
+    expire_agent_jobs()
+    with _agent_lock():
+        jobs = _load_agent_jobs()
+        if any(j.get("claimed_by") == agent_id and j["status"] in AGENT_IN_FLIGHT_STATES for j in jobs):
+            return None
+        queued = sorted((j for j in jobs if j["status"] == "queued"), key=lambda j: (j.get("origin") != "manual", j.get("seq", 0)))
+        if not queued:
+            return None
+        job = queued[0]
+        job.update(status="dispatched", claimed_by=agent_id, dispatched_at=_now(), attempts=job.get("attempts", 0) + 1)
+        return _save_agent_job(job)
+
+
+def _claimed_job(jid: str, agent_id: str, states: tuple) -> dict:
+    job = get_agent_job(jid)
+    if job.get("claimed_by") != agent_id or job["status"] not in states:
+        raise ValueError(f"Job {jid} isn't currently assigned to this session (status: {job['status']}).")
+    return job
+
+
+def ack_agent_job(jid: str, agent_id: str) -> dict:
+    with _agent_lock():
+        job = _claimed_job(jid, agent_id, AGENT_IN_FLIGHT_STATES)
+        if job["status"] == "dispatched":
+            job.update(status="acked", acked_at=_now()); job.pop("error", None); _save_agent_job(job)
+    _agent_state(acked_at=_now())
+    return job
+
+
+def complete_agent_job(jid: str, agent_id: str, verdict: str, comment_id: str) -> dict:
+    with _agent_lock():
+        job = _claimed_job(jid, agent_id, AGENT_IN_FLIGHT_STATES)
+        job.update(status="done", verdict=verdict, comment_id=comment_id, finished=_now()); job.pop("error", None)
+        return _save_agent_job(job)
+
+
+def fail_agent_job(jid: str, agent_id: str, reason: str) -> dict:
+    with _agent_lock():
+        job = _claimed_job(jid, agent_id, AGENT_IN_FLIGHT_STATES)
+        job.update(status="failed", error=(reason or "Claude Agent gave up").strip()[:500], finished=_now())
+        return _save_agent_job(job)
+
+
+def cancel_agent_job(jid: str) -> dict:
+    with _agent_lock():
+        job = get_agent_job(jid)
+        if job["status"] not in AGENT_OPEN_STATES:
+            raise ValueError(f"Job is already {job['status']}")
+        job.update(status="cancelled", finished=_now()); job.pop("claimed_by", None)
+        return _save_agent_job(job)
+
+
+def retry_agent_job(jid: str) -> dict:
+    with _agent_lock():
+        job = get_agent_job(jid)
+        if job["status"] not in ("failed", "cancelled"):
+            raise ValueError(f"Only failed or cancelled jobs can be retried (this one is {job['status']})")
+        job.update(status="queued", attempts=0)
+        for k in ("error", "finished", "claimed_by", "dispatched_at", "acked_at"): job.pop(k, None)
+        return _save_agent_job(job)
+
+
+def agent_status() -> dict:
+    """`state`: offline (no `kodand agent` session), not_receiving (it connected but didn't ack a
+    push — started without the channel flag, or channels are blocked), busy, or idle."""
+    sessions = [s for s in list_mcp_servers() if s.get("agent") and s["connected"]]
+    jobs = list_agent_jobs(limit=10_000)
+    count = lambda *states: sum(1 for j in jobs if j["status"] in states)  # noqa: E731
+    st = _read_json(_agent_state_path()) or {}
+    newest_start = max((s.get("started_at") or "" for s in sessions), default="")
+    unacked, acked = st.get("unacked_at") or "", st.get("acked_at") or ""
+    if not sessions:
+        state = "offline"
+    elif unacked > acked and unacked >= newest_start:
+        state = "not_receiving"
+    elif count(*AGENT_IN_FLIGHT_STATES):
+        state = "busy"
+    else:
+        state = "idle"
+    return {"state": state, "sessions": len(sessions), "queued": count("queued"),
+            "running": count(*AGENT_IN_FLIGHT_STATES), "done": count("done"), "failed": count("failed"),
+            "last_ack": acked or None}
 
 
 # --- Console auth: one local password + server-side sessions ---

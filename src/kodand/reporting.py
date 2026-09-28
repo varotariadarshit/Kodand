@@ -285,6 +285,34 @@ document.addEventListener('DOMContentLoaded',()=>{
   document.addEventListener('click',closeOpenDropdown);
   document.addEventListener('scroll',closeOpenDropdown,true);
 
+  // Claude Agent: the work happens in the user's own Claude Code session (kodand agent), so the
+  // button only queues a job; one poller then follows every open job on this page until its
+  // verdict comment lands.
+  const AGENT_LABEL={queued:'Queued for Claude Agent',dispatched:'Sent to Claude Agent',acked:'Claude Agent verifying…',done:'Complete',failed:'Claude Agent failed',cancelled:'Cancelled'};
+  const AGENT_OPEN=['queued','dispatched','acked'];
+  const agentWatch=new Map(); let agentTimer=null;
+  function showAgentJob(panel,job){
+    const badge=panel.querySelector('.rv-ai-status');
+    const cls=job.status==='done'?'success':(job.status==='failed'||job.status==='cancelled')?'failed':'testing';
+    badge.className='rv-ai-status show '+cls; badge.textContent=AGENT_LABEL[job.status]||job.status; badge.title=job.error||'';
+    if(job.status==='done')setTimeout(()=>{badge.className='rv-ai-status';badge.textContent='';badge.title='';},4000);
+  }
+  async function agentJobsByFinding(){
+    const jobs=await api(`/api/agent/jobs?project=${encodeURIComponent(pid)}&scan=${encodeURIComponent(m[2])}`);
+    const latest={}; jobs.forEach(j=>{if(!latest[j.finding_id])latest[j.finding_id]=j;});  // newest first
+    return latest;
+  }
+  async function pollAgentJobs(){
+    let latest; try{latest=await agentJobsByFinding();}catch(e){return;}
+    for(const [fid,panel] of agentWatch){
+      const job=latest[fid]; if(!job)continue;
+      showAgentJob(panel,job);
+      if(!AGENT_OPEN.includes(job.status)){agentWatch.delete(fid); if(job.status==='done')await refreshComments(panel);}
+    }
+    if(!agentWatch.size){clearInterval(agentTimer);agentTimer=null;}
+  }
+  function watchAgentJob(fid,panel){agentWatch.set(fid,panel); if(!agentTimer)agentTimer=setInterval(pollAgentJobs,3000);}
+
   let LAST_REVIEW={};
   async function recomputeSummary(review){
     if(!review){try{review=await api(base+'/review');}catch(e){return;}}
@@ -368,6 +396,15 @@ document.addEventListener('DOMContentLoaded',()=>{
           appAlert(err.message);
         }
       });
+      panel.querySelector('.rv-claude-agent-btn').addEventListener('click', async ()=>{
+        try{
+          const job=await api(`${base}/findings/${fid}/agent-verify`,{method:'POST'});
+          showAgentJob(panel,job); watchAgentJob(fid,panel);
+          const s=await api('/api/agent/status');
+          if(s.state==='offline')appAlert('Queued. Claude Agent isn\\'t running yet — start it with `kodand agent` in a terminal and this finding will be picked up as soon as it connects.');
+          else if(s.state==='not_receiving')appAlert('Queued, but your Claude Agent session isn\\'t receiving jobs. Quit it and start it again with `kodand agent`.');
+        }catch(err){appAlert(err.message);}
+      });
       panel.querySelector('.rv-chat-btn').addEventListener('click', async ()=>{
         const input=panel.querySelector('.rv-chat-input'), text=input.value.trim(); if(!text)return;
         const badge=panel.querySelector('.rv-ai-status'); badge.className='rv-ai-status show testing'; badge.textContent='Thinking…';
@@ -384,6 +421,14 @@ document.addEventListener('DOMContentLoaded',()=>{
       });
     });
     recomputeSummary(review);
+    // pick up jobs queued earlier (e.g. by auto-verify on this scan) so their progress shows too
+    try{
+      const latest=await agentJobsByFinding();
+      document.querySelectorAll('.review-panel').forEach(panel=>{
+        const job=latest[panel.dataset.fid];
+        if(job&&AGENT_OPEN.includes(job.status)){showAgentJob(panel,job);watchAgentJob(panel.dataset.fid,panel);}
+      });
+    }catch(e){}
   });
 })();
 """
@@ -521,6 +566,7 @@ def write_html(a, p):
         </div>
         <button type="button" class="rv-ai-btn"><svg class="rv-ai-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.5l1.7 5 5 1.7-5 1.7-1.7 5-1.7-5-5-1.7 5-1.7 1.7-5z"/><path d="M19.3 13l.9 2.6 2.6.9-2.6.9-.9 2.6-.9-2.6-2.6-.9 2.6-.9.9-2.6z"/></svg>AI Review</button>
         <button type="button" class="rv-ai-btn rv-agentic-btn" title="Claude decides for itself which files to read before giving a verdict, instead of one canned prompt"><svg class="rv-ai-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.5l1.7 5 5 1.7-5 1.7-1.7 5-1.7-5-5-1.7 5-1.7 1.7-5z"/><path d="M19.3 13l.9 2.6 2.6.9-2.6.9-.9 2.6-.9-2.6-2.6-.9 2.6-.9.9-2.6z"/></svg>Verify with Agent</button>
+        <button type="button" class="rv-ai-btn rv-claude-agent-btn" title="Send this finding to your Claude Agent session (kodand agent) — it verifies with your own Claude login and adds the verdict as a comment"><svg class="rv-ai-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.5l1.7 5 5 1.7-5 1.7-1.7 5-1.7-5-5-1.7 5-1.7 1.7-5z"/><path d="M19.3 13l.9 2.6 2.6.9-2.6.9-.9 2.6-.9-2.6-2.6-.9 2.6-.9.9-2.6z"/></svg>Verify with Claude Agent</button>
         <span class="rv-ai-status"></span>
       </div>
       <div class="rv-comments"></div>

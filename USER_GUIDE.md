@@ -83,6 +83,7 @@ kodand schema --output analysis-schema.json   # dump the RepositoryAnalysis JSON
 
 kodand ui [--host 127.0.0.1] [--port 8787] [--allow-remote]   # launch the web console
 kodand mcp                                                     # run as an MCP server (stdio)
+kodand agent [--print]                  # start your Claude Code session as Kodand's Claude Agent
 ```
 
 Notes:
@@ -197,6 +198,9 @@ Every finding in a report can be:
   itself before giving a verdict.
 - Followed up with an **AI chat** — ask the AI assistant a free-form question
   about a specific finding; the exchange is recorded as comments too.
+- Sent to **Claude Agent** — your own Claude Code session verifies it with
+  your own Claude login, no API key; see
+  [Claude Agent](#claude-agent--verifying-from-the-web-console).
 
 ## 6. MCP server — scanning from an AI agent
 
@@ -262,6 +266,73 @@ add_finding_comment(project, scan, finding_id,
 
 While a scan runs — whether kicked off via MCP or the web UI — it's visible
 live in the web console's **Live Scans** tab.
+
+### Claude Agent — verifying from the web console
+
+The MCP tools above are driven from the agent's side: you ask Claude Code to do
+something and it calls Kodand. Claude Agent works the other way round. You click
+in the web console and your own Claude Code session does the verification, using
+your own Claude login, with no API key.
+
+MCP doesn't let a server call its client, so this uses Claude Code **channels**
+(a research preview): `kodand agent` starts a Claude Code session in which
+Kodand's MCP server also acts as a channel. The console queues jobs, and that
+server pushes them into the session one at a time. Claude reads the finding and
+the scanned files through Kodand's tools, then reports back with `complete_job`.
+
+**Set up once**
+1. Do steps 1, 3 and 5 of the MCP setup above: install with the `mcp` extra,
+   acknowledge data sharing, and share the project with MCP agents.
+2. Sign in to Claude Code (`claude`) as usual. Claude Pro and Max accounts can
+   use channels straight away. On Team and Enterprise plans an admin has to
+   enable channels first (claude.ai → Admin settings → Claude Code → Channels).
+
+**Run it**
+```bash
+kodand agent
+```
+Confirm the development-channel prompt Claude Code shows at startup, then leave
+that terminal open. Jobs from the console appear there as they are handled.
+Settings → **Claude Agent** in the console shows the session as connected.
+`kodand agent --print` shows the exact command instead of running it.
+
+**Send it findings**
+- **One finding:** open a report and click **Verify with Claude Agent**. The
+  badge follows the job, and the verdict appears as a comment.
+- **A whole scan:** click **Verify with Claude Agent** on the scan in the
+  project's scan list. It tells you how many findings it will send before you
+  confirm.
+- **Automatically after a scan:** when starting a scan, turn on **Verify
+  findings with Claude Agent after the scan**. Every finding is sent unless you
+  set a minimum severity or a maximum number of findings. The scan itself never
+  waits for Claude; jobs run whenever the session is up.
+
+Each verdict is a comment starting with `Verdict: True positive`, `False
+positive` or `Needs review`. Claude Agent never changes a finding's review
+status; setting that is up to you. Each verification uses your Claude plan's
+usage.
+
+**What the session can do.** Scanned skills are untrusted input, so the session
+started by `kodand agent` has every built-in Claude Code tool switched off
+(`--tools ""`) and loads only Kodand's MCP server (`--strict-mcp-config`). It
+can read shared projects and add comments, nothing else: a prompt injection in a
+scanned file can at most produce a wrong verdict. It runs in an empty working
+folder (`~/.kodand/agent/workdir`), so no project's `CLAUDE.md` is loaded. Jobs
+can only be queued from the machine running the console, even with `kodand ui
+--allow-remote`, unless you start the console with `KODAND_AGENT_ALLOW_REMOTE=1`.
+
+**Status in Settings → Claude Agent**
+
+| Status | Meaning |
+|---|---|
+| Not running | No `kodand agent` session is connected. Jobs wait in the queue. |
+| Connected · idle / verifying | Working normally. |
+| Connected but not receiving jobs | The session didn't acknowledge a pushed job within a minute. Usually it was started without the channel flag, or your organization blocks channels. Quit it and run `kodand agent` again. |
+
+A job that isn't acknowledged is re-sent up to 3 times, then marked failed. A
+job whose session ends before starting on it goes back to the queue; one whose
+session ends mid-verification, or that gets no verdict within 15 minutes, is
+marked failed. Failed and cancelled jobs can be retried from the same panel.
 
 ## 7. Custom templates
 

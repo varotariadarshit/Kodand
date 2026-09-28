@@ -286,6 +286,19 @@ thead th{background:var(--surface-2);text-transform:uppercase;font-size:.7rem;le
                 <input type="checkbox" id="scan-custom"><span class="sw"></span>
                 <span>Include global custom templates in this scan</span>
               </label>
+              <label class="flabel">Claude Agent</label>
+              <label class="tog" title="After the scan, send its findings to your Claude Agent session (kodand agent); each verdict arrives as a comment">
+                <input type="checkbox" id="scan-agent" onchange="toggleScanAgent()"><span class="sw"></span>
+                <span>Verify findings with Claude Agent after the scan</span>
+              </label>
+              <div id="scan-agent-opts" class="hide">
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                  <div class="f"><label>Minimum severity</label>
+                    <select id="scan-agent-sev"><option value="">Any (all findings)</option><option value="critical">Critical</option><option value="high">High and above</option><option value="medium">Medium and above</option><option value="low">Low and above</option></select></div>
+                  <div class="f"><label>Max findings</label><input id="scan-agent-max" type="number" min="1" placeholder="No limit"></div>
+                </div>
+                <p id="scan-agent-hint" class="hint" style="margin-top:0"></p>
+              </div>
               <button class="run" onclick="runScan()">▶ Run scan</button>
               <span id="scan-status" class="small muted" style="margin-left:10px"></span>
             </div>
@@ -439,6 +452,20 @@ thead th{background:var(--surface-2);text-transform:uppercase;font-size:.7rem;le
         <label class="flabel">Detected clients</label>
         <div id="mcp-clients"></div>
       </div>
+
+      <div class="panel">
+        <h2>Claude Agent</h2>
+        <div class="small muted" style="margin-bottom:16px">Verifies findings in your own Claude Code session, using your own Claude login — no API key. Run <code>kodand agent</code> in a terminal and leave it open: findings you send from a report or a new scan are handed to it one at a time, and each verdict is added as a comment. It can only use Kodand's own tools, and only on projects shared with MCP agents above; review statuses stay yours to set.</div>
+        <div class="f">
+          <label>Status</label>
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+            <span id="agent-status-line" class="small muted">–</span>
+            <button class="ghostbtn" onclick="loadAgentPanel()">↻ Refresh</button>
+          </div>
+        </div>
+        <label class="flabel">Recent jobs</label>
+        <div id="agent-jobs" class="small muted">–</div>
+      </div>
     </div>
 
     <!-- ABOUT -->
@@ -517,7 +544,7 @@ function activateTab(name){
   TABS.forEach(n=>document.getElementById('tab-'+n).classList.toggle('hide',n!==name));
   if(name==='projects')showProjects();
   if(name==='templates')loadTemplates();
-  if(name==='settings'){loadAiSettings();loadMcpSettings();}
+  if(name==='settings'){loadAiSettings();loadMcpSettings();loadAgentPanel();}
   if(name==='activity'){closeActivityDetail();}
 }
 document.querySelectorAll('nav.menu a').forEach(t=>t.onclick=()=>{
@@ -793,6 +820,10 @@ function showProject(p){
   document.getElementById('scan-files-label').textContent='No file chosen';
   document.getElementById('scan-label').value='';
   document.getElementById('scan-custom').checked=false;
+  document.getElementById('scan-agent').checked=false;
+  document.getElementById('scan-agent-sev').value='';
+  document.getElementById('scan-agent-max').value='';
+  toggleScanAgent();
   document.getElementById('p-mcp-shared').checked=!!p.mcp_shared;
   loadScans();
 }
@@ -803,6 +834,7 @@ async function toggleProjectMcpSharing(){
     CUR.mcp_shared=r.mcp_shared;
     toast(cb.checked?'Shared with MCP agents':'MCP sharing disabled for this project');
   }catch(e){cb.checked=!cb.checked;toast(e.message,false);}
+  toggleScanAgent();
 }
 // folder and archive pickers are mutually exclusive — picking one clears the other
 function selectedUpload(){
@@ -871,11 +903,59 @@ async function loadScans(){
       <div><div class="name">${escHtml(s.label||s.repository)}</div><div class="hash">${escHtml(s.id)}</div>
         <div class="stats"><span>${escHtml(s.findings)} finding${s.findings===1?'':'s'}${supp}</span><span>${escHtml(s.skill_files)} entrypoint file(s)</span><span>${escHtml(s.templates_total)} templates${s.use_custom?` (incl. ${escHtml(s.templates_custom)} custom)`:''}</span><span>${escHtml(s.created)}</span></div></div>
       <span class="badge ${escHtml(rc)}">${escHtml(risk)}</span>
-      <div class="acts"><a href="${reportUrl}" target="_blank" rel="noopener">Report</a><a href="${filesUrl}" target="_blank" rel="noopener">Files</a><a href="/api/projects/${CUR.id}/scans/${s.id}/download/json" target="_blank" rel="noopener">JSON</a><button onclick="deleteArtifacts('${s.id}')">Delete Artifacts</button><button class="danger" onclick="delScan('${s.id}')">Delete</button></div>
+      <div class="acts"><a href="${reportUrl}" target="_blank" rel="noopener">Report</a><a href="${filesUrl}" target="_blank" rel="noopener">Files</a><a href="/api/projects/${CUR.id}/scans/${s.id}/download/json" target="_blank" rel="noopener">JSON</a><button onclick="verifyScanWithAgent('${s.id}')" title="Send this scan's findings to your Claude Agent session">Verify with Claude Agent</button><button onclick="deleteArtifacts('${s.id}')">Delete Artifacts</button><button class="danger" onclick="delScan('${s.id}')">Delete</button></div>
     </div>`;
   }).join('');
 }
-async function runScan(){const st=document.getElementById('scan-status');st.textContent='Running…';const fd=new FormData();const path=document.getElementById('scan-path').value.trim();const files=selectedUpload();const label=document.getElementById('scan-label').value.trim();const custom=document.getElementById('scan-custom').checked;if(path)fd.append('repo_path',path);for(const f of files)fd.append('files',f,f.webkitRelativePath||f.name);fd.append('use_custom',custom?'true':'false');if(label)fd.append('label',label);if(!path && !files.length){st.textContent='';return toast('Provide a path or upload files',false);}try{const r=await api('/api/projects/'+CUR.id+'/scans',{method:'POST',body:fd});st.textContent='';if(!r.skills){toast(`Scan complete, but no skill files were found — nothing matched SKILL.md, GEMINI.md, AGENTS.md, etc. Check you picked the skill folder (or its .zip), not a parent directory.`,false);}else{toast(`Scan complete — ${r.findings} findings across ${r.skills} skill(s) (${r.overall_risk})`);}loadScans();loadMeta();}catch(e){st.textContent='';toast(e.message,false);}}
+async function runScan(){const st=document.getElementById('scan-status');st.textContent='Running…';const fd=new FormData();const path=document.getElementById('scan-path').value.trim();const files=selectedUpload();const label=document.getElementById('scan-label').value.trim();const custom=document.getElementById('scan-custom').checked;if(path)fd.append('repo_path',path);for(const f of files)fd.append('files',f,f.webkitRelativePath||f.name);fd.append('use_custom',custom?'true':'false');if(label)fd.append('label',label);if(document.getElementById('scan-agent').checked){fd.append('agent_verify','true');fd.append('agent_min_severity',document.getElementById('scan-agent-sev').value);fd.append('agent_max_findings',document.getElementById('scan-agent-max').value.trim());}if(!path && !files.length){st.textContent='';return toast('Provide a path or upload files',false);}try{const r=await api('/api/projects/'+CUR.id+'/scans',{method:'POST',body:fd});st.textContent='';if(!r.skills){toast(`Scan complete, but no skill files were found — nothing matched SKILL.md, GEMINI.md, AGENTS.md, etc. Check you picked the skill folder (or its .zip), not a parent directory.`,false);}else{toast(`Scan complete — ${r.findings} findings across ${r.skills} skill(s) (${r.overall_risk})${r.agent_jobs_queued!=null?` · ${r.agent_jobs_queued} queued for Claude Agent`:''}`);}if(r.agent_error)toast(r.agent_error,false);loadScans();loadMeta();}catch(e){st.textContent='';toast(e.message,false);}}
+const AGENT_STATE={
+  offline:{text:'○ Not running — start it with kodand agent in a terminal; queued jobs wait until it connects',color:'var(--text-faint)'},
+  not_receiving:{text:'⚠ Connected but not receiving jobs — restart it with kodand agent (the channel flag is missing, or your organization blocks channels)',color:'#f4547a'},
+  busy:{text:'● Connected · verifying',color:'var(--green)'},
+  idle:{text:'● Connected · idle',color:'var(--green)'},
+};
+function agentStateLine(s){const st=AGENT_STATE[s.state]||{text:s.state,color:'var(--text-faint)'};
+  const q=s.queued||s.running?` · ${s.running} running, ${s.queued} queued`:'';
+  return {text:st.text+q+(s.claude_found?'':' · Claude Code not found on PATH'),color:st.color};}
+async function toggleScanAgent(){
+  const on=document.getElementById('scan-agent').checked,hint=document.getElementById('scan-agent-hint');
+  document.getElementById('scan-agent-opts').classList.toggle('hide',!on);
+  if(!on)return;
+  if(!document.getElementById('p-mcp-shared').checked){hint.textContent='Turn on “Share with MCP agents” for this project first — Claude Agent reads findings through Kodand’s MCP tools.';hint.style.color='#f4547a';return;}
+  hint.textContent='No filter means every finding is sent. Each one uses your Claude plan’s usage.';hint.style.color='';
+  try{const s=await api('/api/agent/status');if(s.state!=='idle'&&s.state!=='busy'){const l=agentStateLine(s);hint.textContent+=' Claude Agent: '+l.text;}}catch(e){}
+}
+async function verifyScanWithAgent(sid){
+  const base='/api/projects/'+CUR.id+'/scans/'+sid+'/agent-verify';
+  try{
+    const {count}=await api(base,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({dry_run:true})});
+    if(!count)return toast('This scan has no findings to verify');
+    if(!await appConfirm(`Send all ${count} finding${count===1?'':'s'} of this scan to Claude Agent? Each one uses your Claude plan’s usage. Findings already queued are skipped.`,'Send'))return;
+    const r=await api(base,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});
+    const s=await api('/api/agent/status');
+    toast(`${r.queued} finding${r.queued===1?'':'s'} queued for Claude Agent`+(s.state==='offline'?' — start it with kodand agent':''),s.state!=='offline');
+  }catch(e){toast(e.message,false);}
+}
+const AGENT_JOB_LABEL={queued:'Queued',dispatched:'Sent',acked:'Verifying',done:'Done',failed:'Failed',cancelled:'Cancelled'};
+async function loadAgentPanel(){
+  try{
+    const s=await api('/api/agent/status'),line=document.getElementById('agent-status-line'),l=agentStateLine(s);
+    line.textContent=l.text;line.style.color=l.color;
+    const jobs=await api('/api/agent/jobs?limit=25'),el=document.getElementById('agent-jobs');
+    if(!jobs.length){el.textContent='No jobs yet — send findings from a report (“Verify with Claude Agent”) or tick the option when starting a scan.';return;}
+    el.innerHTML=jobs.map(j=>{
+      const open=['queued','dispatched','acked'].includes(j.status),report=`/api/projects/${encodeURIComponent(j.project_id)}/scans/${encodeURIComponent(j.scan_id)}/report#${encodeURIComponent(j.finding_id)}`;
+      const act=open?`<button onclick="agentJobAction('${j.id}','cancel')">Cancel</button>`:(j.status==='failed'||j.status==='cancelled')?`<button onclick="agentJobAction('${j.id}','retry')">Retry</button>`:'';
+      return `<div class="entry two"><div><div class="name">${escHtml(AGENT_JOB_LABEL[j.status]||j.status)} · ${escHtml(j.title||j.finding_id)}</div>
+        <div class="hash">${escHtml(j.severity)} · ${escHtml(j.project_id)} / ${escHtml(j.scan_id)} · ${escHtml(j.origin)} · ${escHtml(j.updated||j.created)}${j.error?' · '+escHtml(j.error):''}</div></div>
+        <div class="acts"><a href="${report}" target="_blank" rel="noopener">Report</a>${act}</div></div>`;
+    }).join('');
+  }catch(e){toast(e.message,false);}
+}
+async function agentJobAction(jid,action){
+  try{await api('/api/agent/jobs/'+jid+'/'+action,{method:'POST'});toast(action==='cancel'?'Job cancelled':'Job queued again');loadAgentPanel();}
+  catch(e){toast(e.message,false);}
+}
 async function delScan(sid){if(!await appConfirm('Delete this scan?'))return;try{await api('/api/projects/'+CUR.id+'/scans/'+sid,{method:'DELETE'});toast('Scan deleted');loadScans();}catch(e){toast(e.message,false);}}
 
 async function deleteArtifacts(sid){

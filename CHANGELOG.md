@@ -63,6 +63,21 @@ Initial release.
 - A project must be explicitly shared with MCP clients before any tool can see it.
 - A `kodand-mcp-scan` Claude Code skill that drives a scan end to end.
 
+### Claude Agent (`kodand agent`)
+- Verify findings from the web console in your own Claude Code session, with your
+  own Claude login and no API key: `kodand agent` starts that session, and
+  Kodand's MCP server inside it pushes queued findings in as Claude Code channel
+  events (research preview), one at a time.
+- "Verify with Claude Agent" on each finding in a report and on each scan, and an
+  optional "Verify findings with Claude Agent" step when starting a scan (off by
+  default; optional minimum severity and max findings, no limit by default).
+- Verdicts are added as comments; review statuses are left for you to set.
+- The session can only use Kodand's own MCP tools (every built-in Claude Code
+  tool is switched off), only on projects shared with MCP agents, and jobs can
+  only be queued from the machine running the console.
+- Settings → Claude Agent shows whether the session is connected, idle, busy or
+  not receiving jobs, with recent jobs you can cancel or retry.
+
 ### Security
 - Project and scan IDs are validated on every request, so neither the console nor
   an MCP client can reach outside a shared project.

@@ -278,6 +278,27 @@ def api_scans(pid: str):
         raise HTTPException(404, "Project not found")
 
 
+def _agent_filters(min_severity, max_findings) -> tuple[str | None, int | None]:
+    """Blank means no filter: by default every finding is queued."""
+    min_severity = (str(min_severity or "")).strip().lower() or None
+    try:
+        max_findings = int(max_findings) if str(max_findings or "").strip() else None
+    except ValueError:
+        raise HTTPException(400, "Max findings must be a whole number")
+    if max_findings is not None and max_findings < 1:
+        raise HTTPException(400, "Max findings must be at least 1")
+    return min_severity, max_findings
+
+
+def _require_local_agent_request(request: Request) -> None:
+    """Queuing Claude Agent work spends the user's own Claude plan, so it's only accepted from this
+    machine even when the console is exposed with --allow-remote, unless explicitly opened up."""
+    host = request.client.host if request.client else ""
+    if host not in _LOOPBACK_HOSTS and os.environ.get("KODAND_AGENT_ALLOW_REMOTE") != "1":
+        raise HTTPException(403, "Claude Agent jobs can only be queued from this machine "
+                                 "(set KODAND_AGENT_ALLOW_REMOTE=1 before `kodand ui` to allow remote clients).")
+
+
 @app.post("/api/projects/{pid}/scans")
 async def api_create_scan(pid: str, request: Request):
     # FastAPI's File()/Form() params always go through Starlette's default
@@ -292,6 +313,17 @@ async def api_create_scan(pid: str, request: Request):
         workers = min(max(1, int(form.get("workers", 1))), os.cpu_count() or 1)
     except (TypeError, ValueError):
         workers = 1
+    agent_verify = str(form.get("agent_verify", "")).lower() == "true"
+    if agent_verify:
+        # refuse up front, not after a long scan the user then has to re-run
+        _require_local_agent_request(request)
+        agent_min_severity, agent_max = _agent_filters(form.get("agent_min_severity"), form.get("agent_max_findings"))
+        try:
+            store.require_mcp_shared(pid)
+        except FileNotFoundError:
+            raise HTTPException(404, "Project not found")
+        except ValueError as e:
+            raise HTTPException(400, str(e))
     files = form.getlist("files")
     try:
         sid, sd = store.new_scan_dir(pid)
@@ -354,6 +386,13 @@ async def api_create_scan(pid: str, request: Request):
             "source": source, "use_custom": bool(use_custom), **result}
     store.save_scan_meta(pid, sid, meta)
     store.finish_scan_progress(pid, sid, "complete")
+    if agent_verify:
+        # the scan itself never waits on Claude: jobs are queued and run whenever the agent session is up
+        try:
+            jobs = store.enqueue_scan_verification(pid, sid, agent_min_severity, agent_max, origin="auto")
+        except ValueError as e:  # sharing switched off while the scan ran: keep the scan, report why
+            return {**meta, "agent_jobs_queued": 0, "agent_error": str(e)}
+        return {**meta, "agent_jobs_queued": len(jobs)}
     return meta
 
 
@@ -526,6 +565,67 @@ def api_ai_review_agentic(pid: str, sid: str, finding_id: str):
         raise HTTPException(502, f"Agentic verification failed: {e}")
     store.touch_mcp_activity(project=pid, tool="verify_with_agent")
     return store.add_comment(pid, sid, finding_id, text, author="AI Assistant (agentic)", kind="ai")
+
+
+@app.post("/api/projects/{pid}/scans/{sid}/findings/{finding_id}/agent-verify")
+def api_agent_verify_finding(pid: str, sid: str, finding_id: str, request: Request):
+    """Queue one finding for the user's Claude Agent session (`kodand agent`)."""
+    _require_local_agent_request(request)
+    try:
+        return store.enqueue_agent_job(pid, sid, finding_id, origin="manual")
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except FileNotFoundError:
+        raise HTTPException(404, "Finding or scan not found")
+
+
+@app.post("/api/projects/{pid}/scans/{sid}/agent-verify")
+def api_agent_verify_scan(pid: str, sid: str, request: Request, payload: dict = Body(default={})):
+    """Queue a scan's findings (optionally filtered) for Claude Agent. `dry_run` only counts them,
+    so the console can say how many jobs it's about to queue before the user confirms."""
+    payload = payload or {}
+    min_severity, max_findings = _agent_filters(payload.get("min_severity"), payload.get("max_findings"))
+    try:
+        if payload.get("dry_run"):
+            return {"count": len(store.select_findings_for_agent(pid, sid, min_severity, max_findings))}
+        _require_local_agent_request(request)
+        jobs = store.enqueue_scan_verification(pid, sid, min_severity, max_findings, origin="manual")
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except FileNotFoundError:
+        raise HTTPException(404, "Scan not found")
+    return {"queued": len(jobs), "jobs": jobs}
+
+
+@app.get("/api/agent/status")
+def api_agent_status():
+    return {**store.agent_status(), "claude_found": bool(shutil.which("claude"))}
+
+
+@app.get("/api/agent/jobs")
+def api_agent_jobs(project: str | None = None, scan: str | None = None, limit: int = 200):
+    return store.list_agent_jobs(project, scan, limit=min(max(1, limit), 1000))
+
+
+@app.post("/api/agent/jobs/{jid}/cancel")
+def api_agent_cancel_job(jid: str):
+    try:
+        return store.cancel_agent_job(jid)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except FileNotFoundError:
+        raise HTTPException(404, "Job not found")
+
+
+@app.post("/api/agent/jobs/{jid}/retry")
+def api_agent_retry_job(jid: str, request: Request):
+    _require_local_agent_request(request)
+    try:
+        return store.retry_agent_job(jid)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except FileNotFoundError:
+        raise HTTPException(404, "Job not found")
 
 
 @app.post("/api/projects/{pid}/scans/{sid}/findings/{finding_id}/ai-chat")
