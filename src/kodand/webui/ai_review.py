@@ -20,6 +20,33 @@ def _post_json(url: str, headers: dict, payload: dict) -> dict:
         raise RuntimeError(str(e.reason)) from e
 
 
+# How every AI verdict in Kodand is reached — AI Review, AI chat and Claude Agent all use it, so the
+# same finding gets the same judgement whichever button was pressed. Written against the failure seen
+# in practice: models calling real vulnerabilities false positives because the project *looked* like
+# a demo, a test fixture or documentation, or because a credential's value said FAKE.
+REVIEW_PRINCIPLES = """\
+Review this finding the way an elite security researcher would on a first encounter: you know nothing
+about the project, its authors or why it exists, and you assume nothing. Judge only what the scanned
+files actually code, configure or instruct.
+- Decide by behaviour: what would an agent that loads these files, or a runtime that executes them,
+  actually do? In skill and instruction files (SKILL.md, AGENTS.md, CLAUDE.md, rules files) the text
+  the agent reads is effectively code.
+- It is a TRUE POSITIVE when the risky condition is present as written: a working command, payload or
+  instruction an agent could follow; a hardcoded credential or secret; an unsafe configuration; code
+  that does the risky thing. This holds even when the value looks fake or placeholder ("FAKE_password",
+  a dummy key, attacker.com), the content is presented as an example, or the project calls itself a
+  demo, test, lab, CTF, tutorial, documentation or intentionally vulnerable. None of those is a
+  mitigation, and none of them may lower the verdict.
+- It is a FALSE POSITIVE only when the flagged content, as written, cannot cause the risk: the matched
+  word means something else, it is only a passing mention inside a sentence or reference that no agent
+  or runtime would act on, it is unreachable or dead code, or it is actually mitigated right there in
+  the files (validated, sandboxed, pinned, access-restricted).
+- NEEDS MORE CONTEXT only when the deciding evidence is missing from the scan (e.g. a referenced file
+  that wasn't scanned). Not because of who you guess wrote it or why.
+- If the project looks like a demo, test or intentionally vulnerable application, you may add one short
+  closing line starting "Context:" that says so. It must not change or soften the verdict."""
+
+
 def build_prompt(finding: dict, file_contents: dict | None = None) -> str:
     occ = finding.get("occurrences", [])[:5]
     evidence = "\n".join(f"- {o['file']}:{o['line']} `{o['matched_value']}` — {o['excerpt']}" for o in occ) or "(no occurrences)"
@@ -31,10 +58,10 @@ def build_prompt(finding: dict, file_contents: dict | None = None) -> str:
         parts = [f"--- {path} ---\n{content}" for path, content in file_contents.items()]
         context_block = "\nFull content of affected file(s), for contextual and cross-file analysis:\n\n" + "\n\n".join(parts) + "\n"
     return (
-        "You are a security analyst reviewing a static-analysis finding from an AI agent skill scanner. "
-        "Assess whether this looks like a true positive or false positive, and give a short remediation opinion."
-        + (" Use the full file content below to judge real context, not just the matched excerpt." if file_contents else "") +
-        "\n\n"
+        "You are reviewing a static-analysis finding from Kodand, a security scanner for AI agent skills.\n"
+        + REVIEW_PRINCIPLES + "\n"
+        + ("Use the full file content below to judge the real context, not just the matched excerpt.\n" if file_contents else "") +
+        "\n"
         f"Title: {finding.get('title')}\n"
         f"Category: {finding.get('category')} {finding.get('category_name')}\n"
         f"Severity: {finding.get('severity')} | Confidence: {finding.get('confidence')} ({finding.get('confidence_score')}/100)\n"
@@ -44,7 +71,8 @@ def build_prompt(finding: dict, file_contents: dict | None = None) -> str:
         f"Capabilities: {', '.join(finding.get('capabilities', [])) or 'none inferred'}\n\n"
         f"Evidence:\n{evidence}\n"
         f"{context_block}\n"
-        "Reply in under 200 words: verdict (True Positive / False Positive / Needs More Context), reasoning, and one concrete next step."
+        "Reply in under 250 words: verdict (True Positive / False Positive / Needs More Context), reasoning with "
+        "file:line evidence, and one concrete next step; then the optional Context: line."
     )
 
 

@@ -29,7 +29,10 @@ from kodand.exceptions import InvalidRepositoryError
 from kodand.webui import ai_review, store
 from kodand.webui.scan_service import load_builtin_templates, run_template_scan
 
-mcp = FastMCP("kodand")
+# the same verdict rules as AI Review and Claude Agent, for a client verifying findings itself
+# (get_finding + get_file_content, then add_finding_comment); agent mode swaps in AGENT_INSTRUCTIONS
+mcp = FastMCP("kodand", instructions="When you verify a Kodand finding and record your verdict with "
+              "add_finding_comment, reach the verdict by these rules:\n" + ai_review.REVIEW_PRINCIPLES)
 _STARTED_AT = datetime.now(timezone.utc).isoformat()
 
 

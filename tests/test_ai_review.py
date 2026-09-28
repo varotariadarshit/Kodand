@@ -165,3 +165,15 @@ def test_missing_key_is_reported_before_any_request(scan, api):
     with pytest.raises(RuntimeError, match="Gemini API key not configured"):
         ai_review.call_provider("gemini", {}, finding, project_id=pid, scan_id=sid)
     assert calls == []
+
+
+def test_every_review_path_uses_the_same_no_assumptions_rules():
+    """AI Review / chat, Claude Agent, and an MCP client verifying findings itself all get the rules
+    that a demo, fake-looking value or 'documentation' label never makes a real issue a false positive."""
+    from kodand.agent import AGENT_INSTRUCTIONS
+    rules = ai_review.REVIEW_PRINCIPLES
+    for phrase in ("assume nothing", "FAKE_password", "intentionally vulnerable", "must not change or soften the verdict"):
+        assert phrase in rules
+    assert rules in ai_review.build_prompt({"title": "t", "occurrences": []})
+    assert rules in AGENT_INSTRUCTIONS
+    assert rules in mcpserver.mcp.instructions
