@@ -89,7 +89,7 @@ patterns, it doesn't prove exploitability.
   verify findings directly from an MCP-capable agent's terminal session,
   without routing through a separately configured AI provider.
 - **Claude Agent** (`kodand agent`) — send findings from the web console to
-  your own Claude Code session for verification, one click per finding or
+  your own Claude Code for verification, one click per finding or
   automatically after a scan, using your own Claude login (no API key). See the
   [User Guide](USER_GUIDE.md#claude-agent--verifying-from-the-web-console).
 - **Live Scans dashboard** — real-time per-file scan progress and

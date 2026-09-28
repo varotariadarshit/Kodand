@@ -307,10 +307,9 @@ MCP_PRESENCE_RETENTION = 30 * 24 * 3600  # keep stopped records this long so "la
 
 def mcp_servers_dir() -> Path:
     d = workspace_root() / "mcp_servers"; d.mkdir(exist_ok=True); return d
-def touch_mcp_server(pid: int, version: str, started_at: str, stopped: bool = False, agent: bool = False) -> None:
+def touch_mcp_server(pid: int, version: str, started_at: str, stopped: bool = False) -> None:
     _write_json_atomic(mcp_servers_dir() / f"{pid}.json",
-                       {"pid": pid, "version": version, "started_at": started_at, "last_seen": _now(),
-                        "stopped": stopped, "agent": agent})
+                       {"pid": pid, "version": version, "started_at": started_at, "last_seen": _now(), "stopped": stopped})
 def _pid_alive(pid) -> bool:
     if os.name == "nt":
         return True  # os.kill(pid, 0) terminates the process on Windows; fall back to the TTL alone
@@ -355,20 +354,17 @@ def read_mcp_status(stale_after: int = 45) -> dict:
     return out
 
 
-# --- Claude Agent: verification jobs the web console hands to the user's own Claude Code session ---
+# --- Claude Agent: verification jobs the web console hands to the user's own Claude Code ---
 #
-# The console can't call Claude Code (MCP only lets the client call the server), so it leaves jobs
-# here and `kodand mcp --agent` — the MCP server inside a session started by `kodand agent` — pushes
-# them into that session as channel events, one at a time. Claude answers through the ack_job /
-# complete_job / fail_job tools. Two OS processes touch these files (console and MCP server), so
-# every change goes through _agent_lock. Claude Code gives no delivery receipt for a channel event,
-# so an un-acked job is re-queued after AGENT_ACK_TIMEOUT and the agent is reported "not receiving".
+# The console can't call Claude Code itself (MCP only lets the client call the server), so it
+# leaves jobs here and the `kodand agent` worker — running in the user's own terminal — picks them
+# up one at a time and runs the user's Claude Code headless on each; Claude reports back through the
+# complete_job / fail_job MCP tools. Two OS processes touch these files (console and worker, plus
+# the per-job MCP server), so every change goes through _agent_lock.
 
-AGENT_ACK_TIMEOUT = 60        # a pushed job nobody acked in this long never reached Claude
-AGENT_JOB_TIMEOUT = 15 * 60   # an acked job with no verdict in this long is failed
-AGENT_MAX_ATTEMPTS = 3        # pushes before an un-acked job gives up
-AGENT_OPEN_STATES = ("queued", "dispatched", "acked")
-AGENT_IN_FLIGHT_STATES = ("dispatched", "acked")
+AGENT_JOB_TIMEOUT = 15 * 60   # backstop for a running job whose worker hung; the worker's own limit is lower
+AGENT_MAX_ATTEMPTS = 3        # runs cut short by a worker dying before the job is given up
+AGENT_OPEN_STATES = ("queued", "running")
 AGENT_VERDICTS = {"true_positive": "True positive", "false_positive": "False positive", "needs_review": "Needs review"}
 _SEVERITY_RANK = {"critical": 4, "high": 3, "medium": 2, "low": 1, "informational": 0}
 _AGENT_JOB_ID_RE = re.compile(r"^[0-9a-f]{12}$")
@@ -376,13 +372,13 @@ _AGENT_LOCK_STALE = 10
 
 
 def agent_dir() -> Path:
-    d = workspace_root() / "agent"; (d / "jobs").mkdir(parents=True, exist_ok=True); return d
+    d = workspace_root() / "agent"
+    for sub in ("jobs", "workers"): (d / sub).mkdir(parents=True, exist_ok=True)
+    return d
 def _agent_job_path(jid: str) -> Path:
     if not isinstance(jid, str) or not _AGENT_JOB_ID_RE.match(jid):
         raise FileNotFoundError("job not found")
     return agent_dir() / "jobs" / f"{jid}.json"
-def _agent_state_path() -> Path:
-    return agent_dir() / "state.json"
 
 
 class _agent_lock:
@@ -415,8 +411,6 @@ def _load_agent_jobs() -> list:
     return sorted(out, key=lambda j: j.get("seq", 0))  # creation order; `created` only has 1s resolution
 def _save_agent_job(job: dict) -> dict:
     job["updated"] = _now(); _write_json_atomic(_agent_job_path(job["id"]), job); return job
-def _agent_state(**fields) -> None:
-    _write_json_atomic(_agent_state_path(), {**(_read_json(_agent_state_path()) or {}), **fields})
 
 
 def get_agent_job(jid: str) -> dict:
@@ -426,7 +420,7 @@ def get_agent_job(jid: str) -> dict:
 
 
 def list_agent_jobs(pid: str | None = None, sid: str | None = None, limit: int = 200) -> list:
-    """Newest first. Expiry runs first, so a job whose session died shows as re-queued, not stuck."""
+    """Newest first. Expiry runs first, so a job whose worker died shows as re-queued, not stuck."""
     expire_agent_jobs()
     jobs = [j for j in _load_agent_jobs() if (pid is None or j["project_id"] == pid) and (sid is None or j["scan_id"] == sid)]
     return list(reversed(jobs))[:limit]
@@ -472,79 +466,74 @@ def enqueue_scan_verification(pid: str, sid: str, min_severity: str | None = Non
     require_mcp_shared(pid)
     findings = select_findings_for_agent(pid, sid, min_severity, max_findings)
     with _agent_lock():
-        existing = _load_agent_jobs()
-        open_ids = {j["finding_id"] for j in existing
+        open_ids = {j["finding_id"] for j in _load_agent_jobs()
                     if j["project_id"] == pid and j["scan_id"] == sid and j["status"] in AGENT_OPEN_STATES}
         return [_save_agent_job(_new_agent_job(pid, sid, f, origin)) for f in findings if f["finding_id"] not in open_ids]
 
 
 def expire_agent_jobs() -> None:
-    """Re-queue pushes nobody acked and jobs whose session died; fail acked jobs that ran too long."""
+    """Re-queue running jobs whose worker died, and fail ones that ran past AGENT_JOB_TIMEOUT."""
     with _agent_lock():
         for j in _load_agent_jobs():
-            if j["status"] not in AGENT_IN_FLIGHT_STATES:
+            if j["status"] != "running":
                 continue
-            claimer_gone = not _pid_alive(j.get("claimed_by"))
-            if j["status"] == "dispatched" and (claimer_gone or _age(j.get("dispatched_at")) > AGENT_ACK_TIMEOUT):
-                if not claimer_gone:
-                    _agent_state(unacked_at=_now())
-                reason = "Claude Agent session ended before picking it up" if claimer_gone else \
-                         "Claude Agent session didn't acknowledge it — is it running with the channel enabled?"
+            if not _pid_alive(j.get("claimed_by")):
                 if j.get("attempts", 0) >= AGENT_MAX_ATTEMPTS:
-                    j.update(status="failed", error=reason, finished=_now())
+                    j.update(status="failed", error="Claude Agent worker stopped before finishing it", finished=_now())
                 else:
-                    j.update(status="queued", error=reason)
+                    j.update(status="queued", error="Claude Agent worker stopped before finishing it")
                 j.pop("claimed_by", None); _save_agent_job(j)
-            elif j["status"] == "acked" and (claimer_gone or _age(j.get("acked_at")) > AGENT_JOB_TIMEOUT):
-                j.update(status="failed", finished=_now(),
-                         error="Claude Agent session ended mid-verification" if claimer_gone else "Timed out waiting for a verdict")
-                _save_agent_job(j)
+            elif _age(j.get("started")) > AGENT_JOB_TIMEOUT:
+                j.update(status="failed", error="Timed out waiting for a verdict", finished=_now()); _save_agent_job(j)
 
 
 def claim_next_agent_job(agent_id: str) -> dict | None:
-    """The next job for this session to push, or None while it still has one in flight. Manual
+    """The next job for this worker to run, or None while it still has one running. Manual
     requests go before auto-verify batches so a click in the UI doesn't wait behind a whole scan."""
     expire_agent_jobs()
     with _agent_lock():
         jobs = _load_agent_jobs()
-        if any(j.get("claimed_by") == agent_id and j["status"] in AGENT_IN_FLIGHT_STATES for j in jobs):
+        if any(j.get("claimed_by") == agent_id and j["status"] == "running" for j in jobs):
             return None
         queued = sorted((j for j in jobs if j["status"] == "queued"), key=lambda j: (j.get("origin") != "manual", j.get("seq", 0)))
         if not queued:
             return None
         job = queued[0]
-        job.update(status="dispatched", claimed_by=agent_id, dispatched_at=_now(), attempts=job.get("attempts", 0) + 1)
+        job.update(status="running", claimed_by=agent_id, started=_now(), attempts=job.get("attempts", 0) + 1)
         return _save_agent_job(job)
 
 
-def _claimed_job(jid: str, agent_id: str, states: tuple) -> dict:
+def _claimed_job(jid: str, agent_id: str) -> dict:
     job = get_agent_job(jid)
-    if job.get("claimed_by") != agent_id or job["status"] not in states:
+    if job.get("claimed_by") != agent_id or job["status"] != "running":
         raise ValueError(f"Job {jid} isn't currently assigned to this session (status: {job['status']}).")
-    return job
-
-
-def ack_agent_job(jid: str, agent_id: str) -> dict:
-    with _agent_lock():
-        job = _claimed_job(jid, agent_id, AGENT_IN_FLIGHT_STATES)
-        if job["status"] == "dispatched":
-            job.update(status="acked", acked_at=_now()); job.pop("error", None); _save_agent_job(job)
-    _agent_state(acked_at=_now())
     return job
 
 
 def complete_agent_job(jid: str, agent_id: str, verdict: str, comment_id: str) -> dict:
     with _agent_lock():
-        job = _claimed_job(jid, agent_id, AGENT_IN_FLIGHT_STATES)
+        job = _claimed_job(jid, agent_id)
         job.update(status="done", verdict=verdict, comment_id=comment_id, finished=_now()); job.pop("error", None)
         return _save_agent_job(job)
 
 
 def fail_agent_job(jid: str, agent_id: str, reason: str) -> dict:
     with _agent_lock():
-        job = _claimed_job(jid, agent_id, AGENT_IN_FLIGHT_STATES)
+        job = _claimed_job(jid, agent_id)
         job.update(status="failed", error=(reason or "Claude Agent gave up").strip()[:500], finished=_now())
         return _save_agent_job(job)
+
+
+def release_agent_job(jid: str, agent_id: str) -> None:
+    """Put a job back in the queue untouched — the worker was stopped (Ctrl+C) mid-run."""
+    with _agent_lock():
+        try:
+            job = _claimed_job(jid, agent_id)
+        except (ValueError, FileNotFoundError):
+            return
+        job.update(status="queued", attempts=max(0, job.get("attempts", 1) - 1))
+        for k in ("claimed_by", "started"): job.pop(k, None)
+        _save_agent_job(job)
 
 
 def cancel_agent_job(jid: str) -> dict:
@@ -562,30 +551,33 @@ def retry_agent_job(jid: str) -> dict:
         if job["status"] not in ("failed", "cancelled"):
             raise ValueError(f"Only failed or cancelled jobs can be retried (this one is {job['status']})")
         job.update(status="queued", attempts=0)
-        for k in ("error", "finished", "claimed_by", "dispatched_at", "acked_at"): job.pop(k, None)
+        for k in ("error", "finished", "claimed_by", "started"): job.pop(k, None)
         return _save_agent_job(job)
 
 
+def touch_agent_worker(pid: int, started_at: str, stopped: bool = False) -> None:
+    _write_json_atomic(agent_dir() / "workers" / f"{pid}.json",
+                       {"pid": pid, "started_at": started_at, "last_seen": _now(), "stopped": stopped})
+def list_agent_workers() -> list:
+    """Live `kodand agent` workers — same heartbeat/TTL/liveness rules as the MCP presence records."""
+    out = []
+    for p in (agent_dir() / "workers").glob("*.json"):
+        rec = _read_json(p)
+        if rec is None: continue
+        if rec.get("stopped") or _age(rec.get("last_seen")) > MCP_PRESENCE_TTL or not _pid_alive(rec.get("pid")):
+            p.unlink(missing_ok=True); continue
+        out.append(rec)
+    return out
+
+
 def agent_status() -> dict:
-    """`state`: offline (no `kodand agent` session), not_receiving (it connected but didn't ack a
-    push — started without the channel flag, or channels are blocked), busy, or idle."""
-    sessions = [s for s in list_mcp_servers() if s.get("agent") and s["connected"]]
+    """`state`: offline (no `kodand agent` worker running), busy, or idle."""
+    workers = list_agent_workers()
     jobs = list_agent_jobs(limit=10_000)
     count = lambda *states: sum(1 for j in jobs if j["status"] in states)  # noqa: E731
-    st = _read_json(_agent_state_path()) or {}
-    newest_start = max((s.get("started_at") or "" for s in sessions), default="")
-    unacked, acked = st.get("unacked_at") or "", st.get("acked_at") or ""
-    if not sessions:
-        state = "offline"
-    elif unacked > acked and unacked >= newest_start:
-        state = "not_receiving"
-    elif count(*AGENT_IN_FLIGHT_STATES):
-        state = "busy"
-    else:
-        state = "idle"
-    return {"state": state, "sessions": len(sessions), "queued": count("queued"),
-            "running": count(*AGENT_IN_FLIGHT_STATES), "done": count("done"), "failed": count("failed"),
-            "last_ack": acked or None}
+    state = "offline" if not workers else "busy" if count("running") else "idle"
+    return {"state": state, "workers": len(workers), "queued": count("queued"), "running": count("running"),
+            "done": count("done"), "failed": count("failed")}
 
 
 # --- Console auth: one local password + server-side sessions ---

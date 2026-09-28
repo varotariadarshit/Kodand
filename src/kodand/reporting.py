@@ -288,8 +288,8 @@ document.addEventListener('DOMContentLoaded',()=>{
   // Claude Agent: the work happens in the user's own Claude Code session (kodand agent), so the
   // button only queues a job; one poller then follows every open job on this page until its
   // verdict comment lands.
-  const AGENT_LABEL={queued:'Queued for Claude Agent',dispatched:'Sent to Claude Agent',acked:'Claude Agent verifying…',done:'Complete',failed:'Claude Agent failed',cancelled:'Cancelled'};
-  const AGENT_OPEN=['queued','dispatched','acked'];
+  const AGENT_LABEL={queued:'Queued for Claude Agent',running:'Claude Agent verifying…',done:'Complete',failed:'Claude Agent failed',cancelled:'Cancelled'};
+  const AGENT_OPEN=['queued','running'];
   const agentWatch=new Map(); let agentTimer=null;
   function showAgentJob(panel,job){
     const badge=panel.querySelector('.rv-ai-status');
@@ -401,8 +401,7 @@ document.addEventListener('DOMContentLoaded',()=>{
           const job=await api(`${base}/findings/${fid}/agent-verify`,{method:'POST'});
           showAgentJob(panel,job); watchAgentJob(fid,panel);
           const s=await api('/api/agent/status');
-          if(s.state==='offline')appAlert('Queued. Claude Agent isn\\'t running yet — start it with `kodand agent` in a terminal and this finding will be picked up as soon as it connects.');
-          else if(s.state==='not_receiving')appAlert('Queued, but your Claude Agent session isn\\'t receiving jobs. Quit it and start it again with `kodand agent`.');
+          if(s.state==='offline')appAlert('Queued. Claude Agent isn\\'t running yet — start it with `kodand agent` in a terminal and this finding will be picked up as soon as it starts.');
         }catch(err){appAlert(err.message);}
       });
       panel.querySelector('.rv-chat-btn').addEventListener('click', async ()=>{
