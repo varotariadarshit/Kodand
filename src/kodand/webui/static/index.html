@@ -455,7 +455,7 @@ thead th{background:var(--surface-2);text-transform:uppercase;font-size:.7rem;le
 
       <div class="panel">
         <h2>Claude Agent</h2>
-        <div class="small muted" style="margin-bottom:16px">Verifies findings in your own Claude Code session, using your own Claude login — no API key. Run <code>kodand agent</code> in a terminal and leave it open: findings you send from a report or a new scan are handed to it one at a time, and each verdict is added as a comment. It can only use Kodand's own tools, and only on projects shared with MCP agents above; review statuses stay yours to set.</div>
+        <div class="small muted" style="margin-bottom:16px">Verifies findings with your own Claude Code and Claude login — no API key. Run <code>kodand agent</code> in a terminal and leave it open: it picks up the findings you send from a report or a new scan one at a time, runs Claude Code on each, and adds the verdict as a comment. Nothing runs while no finding is waiting. It can only use Kodand's own tools, and only on projects shared with MCP agents above; review statuses stay yours to set.</div>
         <div class="f">
           <label>Status</label>
           <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
@@ -909,10 +909,9 @@ async function loadScans(){
 }
 async function runScan(){const st=document.getElementById('scan-status');st.textContent='Running…';const fd=new FormData();const path=document.getElementById('scan-path').value.trim();const files=selectedUpload();const label=document.getElementById('scan-label').value.trim();const custom=document.getElementById('scan-custom').checked;if(path)fd.append('repo_path',path);for(const f of files)fd.append('files',f,f.webkitRelativePath||f.name);fd.append('use_custom',custom?'true':'false');if(label)fd.append('label',label);if(document.getElementById('scan-agent').checked){fd.append('agent_verify','true');fd.append('agent_min_severity',document.getElementById('scan-agent-sev').value);fd.append('agent_max_findings',document.getElementById('scan-agent-max').value.trim());}if(!path && !files.length){st.textContent='';return toast('Provide a path or upload files',false);}try{const r=await api('/api/projects/'+CUR.id+'/scans',{method:'POST',body:fd});st.textContent='';if(!r.skills){toast(`Scan complete, but no skill files were found — nothing matched SKILL.md, GEMINI.md, AGENTS.md, etc. Check you picked the skill folder (or its .zip), not a parent directory.`,false);}else{toast(`Scan complete — ${r.findings} findings across ${r.skills} skill(s) (${r.overall_risk})${r.agent_jobs_queued!=null?` · ${r.agent_jobs_queued} queued for Claude Agent`:''}`);}if(r.agent_error)toast(r.agent_error,false);loadScans();loadMeta();}catch(e){st.textContent='';toast(e.message,false);}}
 const AGENT_STATE={
-  offline:{text:'○ Not running — start it with kodand agent in a terminal; queued jobs wait until it connects',color:'var(--text-faint)'},
-  not_receiving:{text:'⚠ Connected but not receiving jobs — restart it with kodand agent (the channel flag is missing, or your organization blocks channels)',color:'#f4547a'},
-  busy:{text:'● Connected · verifying',color:'var(--green)'},
-  idle:{text:'● Connected · idle',color:'var(--green)'},
+  offline:{text:'○ Not running — start it with kodand agent in a terminal; queued jobs wait until it starts',color:'var(--text-faint)'},
+  busy:{text:'● Running · verifying',color:'var(--green)'},
+  idle:{text:'● Running · waiting for findings',color:'var(--green)'},
 };
 function agentStateLine(s){const st=AGENT_STATE[s.state]||{text:s.state,color:'var(--text-faint)'};
   const q=s.queued||s.running?` · ${s.running} running, ${s.queued} queued`:'';
@@ -936,7 +935,7 @@ async function verifyScanWithAgent(sid){
     toast(`${r.queued} finding${r.queued===1?'':'s'} queued for Claude Agent`+(s.state==='offline'?' — start it with kodand agent':''),s.state!=='offline');
   }catch(e){toast(e.message,false);}
 }
-const AGENT_JOB_LABEL={queued:'Queued',dispatched:'Sent',acked:'Verifying',done:'Done',failed:'Failed',cancelled:'Cancelled'};
+const AGENT_JOB_LABEL={queued:'Queued',running:'Verifying',done:'Done',failed:'Failed',cancelled:'Cancelled'};
 async function loadAgentPanel(){
   try{
     const s=await api('/api/agent/status'),line=document.getElementById('agent-status-line'),l=agentStateLine(s);
@@ -944,7 +943,7 @@ async function loadAgentPanel(){
     const jobs=await api('/api/agent/jobs?limit=25'),el=document.getElementById('agent-jobs');
     if(!jobs.length){el.textContent='No jobs yet — send findings from a report (“Verify with Claude Agent”) or tick the option when starting a scan.';return;}
     el.innerHTML=jobs.map(j=>{
-      const open=['queued','dispatched','acked'].includes(j.status),report=`/api/projects/${encodeURIComponent(j.project_id)}/scans/${encodeURIComponent(j.scan_id)}/report#${encodeURIComponent(j.finding_id)}`;
+      const open=['queued','running'].includes(j.status),report=`/api/projects/${encodeURIComponent(j.project_id)}/scans/${encodeURIComponent(j.scan_id)}/report#${encodeURIComponent(j.finding_id)}`;
       const act=open?`<button onclick="agentJobAction('${j.id}','cancel')">Cancel</button>`:(j.status==='failed'||j.status==='cancelled')?`<button onclick="agentJobAction('${j.id}','retry')">Retry</button>`:'';
       return `<div class="entry two"><div><div class="name">${escHtml(AGENT_JOB_LABEL[j.status]||j.status)} · ${escHtml(j.title||j.finding_id)}</div>
         <div class="hash">${escHtml(j.severity)} · ${escHtml(j.project_id)} / ${escHtml(j.scan_id)} · ${escHtml(j.origin)} · ${escHtml(j.updated||j.created)}${j.error?' · '+escHtml(j.error):''}</div></div>

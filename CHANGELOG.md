@@ -64,19 +64,22 @@ Initial release.
 - A `kodand-mcp-scan` Claude Code skill that drives a scan end to end.
 
 ### Claude Agent (`kodand agent`)
-- Verify findings from the web console in your own Claude Code session, with your
-  own Claude login and no API key: `kodand agent` starts that session, and
-  Kodand's MCP server inside it pushes queued findings in as Claude Code channel
-  events (research preview), one at a time.
+- Verify findings from the web console with your own Claude Code and Claude
+  login, no API key: `kodand agent` is a worker you leave running in a
+  terminal. It picks up queued findings one at a time and runs Claude Code
+  headless on each; Claude records its verdict through the new `complete_job`
+  MCP tool. Nothing runs while no finding is waiting.
 - "Verify with Claude Agent" on each finding in a report and on each scan, and an
   optional "Verify findings with Claude Agent" step when starting a scan (off by
   default; optional minimum severity and max findings, no limit by default).
 - Verdicts are added as comments; review statuses are left for you to set.
-- The session can only use Kodand's own MCP tools (every built-in Claude Code
-  tool is switched off), only on projects shared with MCP agents, and jobs can
-  only be queued from the machine running the console.
-- Settings → Claude Agent shows whether the session is connected, idle, busy or
-  not receiving jobs, with recent jobs you can cancel or retry.
+- Each run has every built-in Claude Code tool switched off and only Kodand's
+  MCP server, which in that mode withholds `scan`, `create_project`,
+  `verify_finding` and `add_finding_comment`. Every finding gets a fresh run.
+  Jobs only for projects shared with MCP agents, queued only from the machine
+  running the console.
+- Settings → Claude Agent shows whether the worker is running, with recent jobs
+  you can cancel or retry.
 
 ### Security
 - Project and scan IDs are validated on every request, so neither the console nor
