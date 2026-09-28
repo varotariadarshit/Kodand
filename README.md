@@ -83,8 +83,8 @@ patterns, it doesn't prove exploitability.
   matched line highlighted and scrolled into view.
 - **AI-assisted review** — one-click AI Review (ChatGPT, Claude, Gemini, or any
   custom OpenAI-compatible endpoint) using the full affected file rather than
-  just the matched excerpt, an agentic (tool-using) verification mode, and
-  follow-up chat on any finding.
+  just the matched excerpt, able to open the skill's other files when it needs
+  more context, and follow-up chat on any finding.
 - **MCP server** (`kodand mcp`) — scan, list findings, read scanned files, and
   verify findings directly from an MCP-capable agent's terminal session,
   without routing through a separately configured AI provider.

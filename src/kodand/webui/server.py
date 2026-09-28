@@ -543,28 +543,18 @@ def api_ai_review(pid: str, sid: str, finding_id: str):
     settings = store.load_ai_settings()
     provider = settings.get("active_provider", "openai")
     try:
-        text = ai_review.call_provider(provider, settings.get(provider, {}), finding, file_contents=file_contents)
+        # the scan ids let the model open other scanned files when the affected ones aren't enough
+        text = ai_review.call_provider(provider, settings.get(provider, {}), finding, file_contents=file_contents,
+                                       project_id=pid, scan_id=sid)
     except Exception as e:
         raise HTTPException(502, f"AI review failed ({provider}): {e}")
     return store.add_comment(pid, sid, finding_id, text, author=f"AI Assistant ({provider})", kind="ai")
 
 
-@app.post("/api/projects/{pid}/scans/{sid}/findings/{finding_id}/ai-review-agentic")
+@app.post("/api/projects/{pid}/scans/{sid}/findings/{finding_id}/ai-review-agentic", deprecated=True)
 def api_ai_review_agentic(pid: str, sid: str, finding_id: str):
-    try:
-        finding = store.find_finding(pid, sid, finding_id)
-    except FileNotFoundError:
-        raise HTTPException(404, "Finding or scan not found")
-    settings = store.load_ai_settings()
-    provider = settings.get("active_provider", "openai")
-    if provider != "claude":
-        raise HTTPException(400, "Agentic (tool-using) verification requires the Claude provider — switch to it in Settings.")
-    try:
-        text = ai_review.agentic_verify(settings.get(provider, {}), finding, pid, sid)
-    except Exception as e:
-        raise HTTPException(502, f"Agentic verification failed: {e}")
-    store.touch_mcp_activity(project=pid, tool="verify_with_agent")
-    return store.add_comment(pid, sid, finding_id, text, author="AI Assistant (agentic)", kind="ai")
+    """Old "Verify with Agent" endpoint. AI Review now does what it did, with any provider."""
+    return api_ai_review(pid, sid, finding_id)
 
 
 @app.post("/api/projects/{pid}/scans/{sid}/findings/{finding_id}/agent-verify")
@@ -643,7 +633,8 @@ def api_ai_chat(pid: str, sid: str, finding_id: str, payload: dict = Body(...)):
     settings = store.load_ai_settings()
     provider = settings.get("active_provider", "openai")
     try:
-        reply = ai_review.chat_reply(provider, settings.get(provider, {}), finding, prior_comments, message, file_contents=file_contents)
+        reply = ai_review.chat_reply(provider, settings.get(provider, {}), finding, prior_comments, message,
+                                     file_contents=file_contents, project_id=pid, scan_id=sid)
     except Exception as e:
         raise HTTPException(502, f"AI chat failed ({provider}): {e}")
     ai_comment = store.add_comment(pid, sid, finding_id, reply, author=f"AI Assistant ({provider})", kind="ai")

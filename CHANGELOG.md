@@ -49,7 +49,9 @@ Initial release.
   exact line, and a Files viewer that highlights flagged lines.
 - Review workflow: Pending Review / True Positive / False Positive / Remediated /
   Suppressed, threaded comments, one-click AI review (OpenAI, Claude, Gemini or any
-  OpenAI-compatible endpoint) and follow-up chat.
+  OpenAI-compatible endpoint) and follow-up chat. AI review sends the affected
+  files up front and can open the scan's other files through the provider's
+  tool calling when it needs more context.
 - Live Scans dashboard with per-stage progress and a durable activity log.
 - Password sign-in with a forced change from the first-run default, and
   `kodand password reset` to recover access from the terminal.

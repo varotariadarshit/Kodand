@@ -130,8 +130,9 @@ def test_verify_finding_uses_full_file_content_not_just_excerpt(tmp_path, monkey
 
     captured = {}
 
-    def fake_call_provider(provider, cfg, finding, file_contents=None):
+    def fake_call_provider(provider, cfg, finding, file_contents=None, project_id=None, scan_id=None):
         captured["file_contents"] = file_contents
+        captured["scan"] = (project_id, scan_id)
         return "mock verdict"
 
     monkeypatch.setattr(ai_review, "call_provider", fake_call_provider)
@@ -145,6 +146,7 @@ def test_verify_finding_uses_full_file_content_not_just_excerpt(tmp_path, monkey
     assert text == "mock verdict"
     assert captured["file_contents"], "expected real file content to be gathered, not just the match excerpt"
     assert any("AKIA1234567890ABCDEF" in c for c in captured["file_contents"].values())
+    assert captured["scan"] == (pid, sid)  # so the provider can open other scanned files too
 
     comments = store.get_review(pid, sid)[fid]["comments"]
     assert any(c["kind"] == "ai" and c["text"] == "mock verdict" for c in comments)

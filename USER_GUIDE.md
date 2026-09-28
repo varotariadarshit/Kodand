@@ -190,14 +190,16 @@ Every finding in a report can be:
   Positive, Remediated, or Suppressed.
 - **Commented on** (and comments edited/deleted) to record human analysis.
 - Sent for **AI Review** — a one-click call to whichever provider is
-  configured in AI assistant settings, using the *full content* of the
-  affected file(s), not just the matched excerpt; the verdict is recorded as
-  a comment.
-- Sent for **Agentic AI Review** — only available with the Claude provider —
-  where the model can use tools to pull additional file/finding context
-  itself before giving a verdict.
+  configured in AI assistant settings. It sends the finding with the *full
+  content* of the affected file(s), not just the matched excerpt, so most
+  findings are answered in a single request. When that isn't enough (say the
+  risk depends on another file in the skill), the model can open the scan's
+  other files itself, using its provider's tool calling, for up to 4 rounds.
+  This works with OpenAI, Claude and Gemini; a custom endpoint without tool
+  support gets a single request. The verdict is recorded as a comment.
 - Followed up with an **AI chat** — ask the AI assistant a free-form question
-  about a specific finding; the exchange is recorded as comments too.
+  about a specific finding, with the same access to the scanned files; the
+  exchange is recorded as comments too.
 - Sent to **Claude Agent** — your own Claude Code session verifies it with
   your own Claude login, no API key; see
   [Claude Agent](#claude-agent--verifying-from-the-web-console).

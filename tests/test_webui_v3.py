@@ -318,7 +318,7 @@ def test_comment_edit_and_delete(tmp_path):
 def test_ai_review_uses_configured_provider(tmp_path, monkeypatch):
     from kodand.webui import ai_review
 
-    monkeypatch.setattr(ai_review, "call_provider", lambda provider, cfg, finding, file_contents=None: f"mock verdict from {provider}")
+    monkeypatch.setattr(ai_review, "call_provider", lambda provider, cfg, finding, file_contents=None, **kw: f"mock verdict from {provider}")
     client.put("/api/settings/ai", json={"active_provider": "openai", "openai": {"api_key": "sk-test", "model": "gpt-4o-mini"}})
     settings = client.get("/api/settings/ai").json()
     assert settings["active_provider"] == "openai" and settings["openai"]["api_key_set"] is True
@@ -336,12 +336,12 @@ def test_ai_chat_continues_the_conversation(tmp_path, monkeypatch):
 
     seen = {}
 
-    def fake_chat_reply(provider, cfg, finding, history, message, file_contents=None):
+    def fake_chat_reply(provider, cfg, finding, history, message, file_contents=None, **kw):
         seen["history"] = history
         seen["message"] = message
         return f"chat reply re: {message}"
 
-    monkeypatch.setattr(ai_review, "call_provider", lambda provider, cfg, finding, file_contents=None: "initial verdict")
+    monkeypatch.setattr(ai_review, "call_provider", lambda provider, cfg, finding, file_contents=None, **kw: "initial verdict")
     monkeypatch.setattr(ai_review, "chat_reply", fake_chat_reply)
     client.put("/api/settings/ai", json={"active_provider": "openai", "openai": {"api_key": "sk-test"}})
 
@@ -395,6 +395,24 @@ def test_ai_settings_test_connection(monkeypatch):
     monkeypatch.setattr(ai_review, "test_connection", _boom)
     r2 = client.post("/api/settings/ai/test", json={"active_provider": "custom", "custom": {"endpoint": "https://x"}})
     assert r2.status_code == 502
+
+
+def test_old_verify_with_agent_endpoint_now_runs_ai_review_with_any_provider(tmp_path, monkeypatch):
+    from kodand.webui import ai_review
+
+    seen = {}
+
+    def fake(provider, cfg, finding, file_contents=None, project_id=None, scan_id=None):
+        seen["scan"] = (project_id, scan_id)
+        return f"verdict from {provider}"
+    monkeypatch.setattr(ai_review, "call_provider", fake)
+    client.put("/api/settings/ai", json={"active_provider": "gemini", "gemini": {"api_key": "AIza-test"}})
+    pid, sid, fid = _scan_with_finding(tmp_path, "Review-Alias")
+    r = client.post(f"/api/projects/{pid}/scans/{sid}/findings/{fid}/ai-review-agentic")
+    assert r.status_code == 200 and r.json()["text"] == "verdict from gemini"  # no longer Claude-only
+    assert seen["scan"] == (pid, sid)
+    assert "Verify with Agent<" not in client.get(f"/api/projects/{pid}/scans/{sid}/report").text
+    client.delete(f"/api/projects/{pid}")
 
 
 def test_custom_provider_requires_model():

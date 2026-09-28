@@ -384,18 +384,6 @@ document.addEventListener('DOMContentLoaded',()=>{
           appAlert(err.message);
         }
       });
-      panel.querySelector('.rv-agentic-btn').addEventListener('click', async ()=>{
-        const badge=panel.querySelector('.rv-ai-status'); badge.className='rv-ai-status show testing'; badge.textContent='Agent investigating…';
-        try{
-          await api(`${base}/findings/${fid}/ai-review-agentic`,{method:'POST'});
-          await refreshComments(panel);
-          badge.className='rv-ai-status show success'; badge.textContent='Complete';
-          setTimeout(()=>{badge.className='rv-ai-status';badge.textContent='';},4000);
-        }catch(err){
-          badge.className='rv-ai-status show failed'; badge.textContent='Failed';
-          appAlert(err.message);
-        }
-      });
       panel.querySelector('.rv-claude-agent-btn').addEventListener('click', async ()=>{
         try{
           const job=await api(`${base}/findings/${fid}/agent-verify`,{method:'POST'});
@@ -563,8 +551,7 @@ def write_html(a, p):
             <div class="csel-opt" data-value="suppressed">Suppress</div>
           </div>
         </div>
-        <button type="button" class="rv-ai-btn"><svg class="rv-ai-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.5l1.7 5 5 1.7-5 1.7-1.7 5-1.7-5-5-1.7 5-1.7 1.7-5z"/><path d="M19.3 13l.9 2.6 2.6.9-2.6.9-.9 2.6-.9-2.6-2.6-.9 2.6-.9.9-2.6z"/></svg>AI Review</button>
-        <button type="button" class="rv-ai-btn rv-agentic-btn" title="Claude decides for itself which files to read before giving a verdict, instead of one canned prompt"><svg class="rv-ai-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.5l1.7 5 5 1.7-5 1.7-1.7 5-1.7-5-5-1.7 5-1.7 1.7-5z"/><path d="M19.3 13l.9 2.6 2.6.9-2.6.9-.9 2.6-.9-2.6-2.6-.9 2.6-.9.9-2.6z"/></svg>Verify with Agent</button>
+        <button type="button" class="rv-ai-btn" title="Your AI provider (Settings → AI assistant) reviews the finding with the full affected files, and opens other scanned files if it needs to"><svg class="rv-ai-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.5l1.7 5 5 1.7-5 1.7-1.7 5-1.7-5-5-1.7 5-1.7 1.7-5z"/><path d="M19.3 13l.9 2.6 2.6.9-2.6.9-.9 2.6-.9-2.6-2.6-.9 2.6-.9.9-2.6z"/></svg>AI Review</button>
         <button type="button" class="rv-ai-btn rv-claude-agent-btn" title="Send this finding to your Claude Agent session (kodand agent) — it verifies with your own Claude login and adds the verdict as a comment"><svg class="rv-ai-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.5l1.7 5 5 1.7-5 1.7-1.7 5-1.7-5-5-1.7 5-1.7 1.7-5z"/><path d="M19.3 13l.9 2.6 2.6.9-2.6.9-.9 2.6-.9-2.6-2.6-.9 2.6-.9.9-2.6z"/></svg>Verify with Claude Agent</button>
         <span class="rv-ai-status"></span>
       </div>
