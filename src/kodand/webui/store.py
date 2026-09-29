@@ -203,13 +203,34 @@ def set_finding_status(pid: str, sid: str, finding_id: str, status: str) -> dict
     entry = overrides.setdefault(finding_id, {}); entry["status"] = status
     _save_overrides(pid, sid, overrides)
     return {"finding_id": finding_id, "status": status, "comments": entry.get("comments", [])}
-def add_comment(pid: str, sid: str, finding_id: str, text: str, author: str = "You", kind: str = "user") -> dict:
+# A comment's verdict drives the badge on it in the report. Claude Agent passes its structured verdict;
+# for anything else (AI Review, chat, a typed comment) it's read from how the text opens —
+# "Verdict: True positive", "**False Positive**", "Needs more context: …" and the like.
+COMMENT_VERDICTS = ("true_positive", "false_positive", "needs_review")
+_VERDICT_RE = re.compile(r"^[\s>#*_`\-]*(?:verdict\s*[:\-–—]?\s*[*_`\s]*)?"
+                         r"(true[\s-]+positive|false[\s-]+positive|needs[\s-]+(?:more[\s-]+context|review))", re.I)
+_VERDICT_ANYWHERE_RE = re.compile(r"\bverdict\s*[:\-–—]\s*[*_`\s]*"
+                                  r"(true[\s-]+positive|false[\s-]+positive|needs[\s-]+(?:more[\s-]+context|review))", re.I)
+
+
+def parse_verdict(text: str) -> str | None:
+    head = (text or "")[:400]
+    m = _VERDICT_RE.match(head) or _VERDICT_ANYWHERE_RE.search(head)
+    if not m: return None
+    word = m.group(1).lower()
+    return "true_positive" if word.startswith("true") else "false_positive" if word.startswith("false") else "needs_review"
+
+
+def add_comment(pid: str, sid: str, finding_id: str, text: str, author: str = "You", kind: str = "user",
+                verdict: str | None = None) -> dict:
     text = (text or "").strip()
     if not text: raise ValueError("Comment text is required")
     find_finding(pid, sid, finding_id)  # raises FileNotFoundError if unknown
     overrides = _load_overrides(pid, sid)
     entry = overrides.setdefault(finding_id, {}); comments = entry.setdefault("comments", [])
     comment = {"id": uuid.uuid4().hex[:10], "author": author, "kind": kind, "text": text, "created": _now()}
+    verdict = verdict if verdict in COMMENT_VERDICTS else parse_verdict(text)
+    if verdict: comment["verdict"] = verdict
     comments.append(comment); _save_overrides(pid, sid, overrides)
     return comment
 def edit_comment(pid: str, sid: str, finding_id: str, comment_id: str, text: str) -> dict:
@@ -220,6 +241,9 @@ def edit_comment(pid: str, sid: str, finding_id: str, comment_id: str, text: str
     for c in comments:
         if c["id"] == comment_id:
             c["text"] = text; c["edited"] = _now()
+            verdict = parse_verdict(text)  # an edit that changes (or removes) the verdict line moves the badge with it
+            if verdict: c["verdict"] = verdict
+            else: c.pop("verdict", None)
             _save_overrides(pid, sid, overrides)
             return c
     raise FileNotFoundError("comment not found")

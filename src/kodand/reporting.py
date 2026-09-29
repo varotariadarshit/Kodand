@@ -122,6 +122,7 @@ tbody tr:hover{background:rgba(255,255,255,.03)}td ul{margin:0;padding-left:18px
 .review-panel .rv-ai-icon{width:14px;height:14px;vertical-align:-2px;margin-right:6px}
 .review-panel .rv-comments{margin-top:10px}
 .review-panel .cm.ai{border-color:#a78bfa66}
+.rv-verdict{display:inline-block;font-size:.7rem;font-weight:700;letter-spacing:.02em;padding:2px 9px;border-radius:20px;border:1px solid;margin-left:6px;vertical-align:1px}
 .review-panel .cm .rv-c-text{margin-top:6px;white-space:pre-wrap}
 .review-panel .rv-edit-ta{width:100%;min-height:60px;background:rgba(0,0,0,.28);border:1px solid rgba(255,255,255,.14);border-radius:8px;color:var(--txt);padding:8px;font:inherit;resize:vertical}
 
@@ -205,12 +206,29 @@ document.addEventListener('DOMContentLoaded',()=>{
 
   function setPill(fid,status){const pill=document.querySelector(`#${CSS.escape(fid)} .rv-status-pill`);if(!pill)return;const c=STATUS_COLOR[status]||'#94a3b8';pill.textContent=STATUS_LABEL[status]||status;pill.style.color=c;pill.style.borderColor=c;pill.style.background=c+'22';}
 
+  // same colours as the review statuses: True positive = confirmed (red), False positive = green
+  const VERDICT={true_positive:{label:'True positive',color:'#f43f5e'},false_positive:{label:'False positive',color:'#22c55e'},
+                 needs_review:{label:'Needs review',color:'#facc15'}};
+  const VERDICT_HEAD=/^[\\s>#*_`\\-]*(?:verdict\\s*[:\\-–—]?\\s*[*_`\\s]*)?(true[\\s-]+positive|false[\\s-]+positive|needs[\\s-]+(?:more[\\s-]+context|review))/i;
+  const VERDICT_ANY=/\\bverdict\\s*[:\\-–—]\\s*[*_`\\s]*(true[\\s-]+positive|false[\\s-]+positive|needs[\\s-]+(?:more[\\s-]+context|review))/i;
+  function commentVerdict(c){
+    if(c.verdict)return c.verdict;
+    const head=(c.text||'').slice(0,400), m=head.match(VERDICT_HEAD)||head.match(VERDICT_ANY);
+    if(!m)return null;
+    const w=m[1].toLowerCase();
+    return w.startsWith('true')?'true_positive':w.startsWith('false')?'false_positive':'needs_review';
+  }
+  function verdictBadge(c){
+    const v=VERDICT[commentVerdict(c)]; if(!v)return '';
+    return `<span class="rv-verdict" style="color:${v.color};border-color:${v.color}88;background:${v.color}22">${v.label}</span>`;
+  }
+
   function renderComments(panel,comments){
     const el=panel.querySelector('.rv-comments');
     el.innerHTML=(comments&&comments.length)?comments.map(c=>`
       <div class="ev cm ${c.kind==='ai'?'ai':''}" data-cid="${c.id}">
         <div class="row" style="justify-content:space-between;flex-wrap:nowrap">
-          <div><b>${esc(c.author)}</b> <span class="hash">${esc(c.created)}${c.edited?' (edited)':''}</span></div>
+          <div><b>${esc(c.author)}</b>${verdictBadge(c)} <span class="hash">${esc(c.created)}${c.edited?' (edited)':''}</span></div>
           <div class="row" style="gap:6px">
             <button type="button" class="sm rv-c-edit">Edit</button>
             <button type="button" class="sm rv-c-del">Delete</button>

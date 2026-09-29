@@ -265,7 +265,7 @@ def complete_job(job_id: str, verdict: Literal["true_positive", "false_positive"
     pid, sid, fid = job["project_id"], job["scan_id"], job["finding_id"]
     _require_shared(pid)
     text = f"Verdict: {store.AGENT_VERDICTS[verdict]}\n\n{(summary or '').strip()}"
-    comment = store.add_comment(pid, sid, fid, text, author="Claude Agent", kind="ai")
+    comment = store.add_comment(pid, sid, fid, text, author="Claude Agent", kind="ai", verdict=verdict)
     store.complete_agent_job(job_id, _AGENT_ID, verdict, comment["id"])
     _touch_verification(pid, sid, fid)
     return {"job_id": job_id, "status": "done", "comment_id": comment["id"]}

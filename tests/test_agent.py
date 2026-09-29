@@ -105,6 +105,7 @@ def test_complete_job_records_a_comment_and_leaves_the_status_to_the_user(tmp_pa
     assert review["status"] == before
     comment = review["comments"][-1]
     assert comment["id"] == out["comment_id"] and comment["author"] == "Claude Agent" and comment["kind"] == "ai"
+    assert comment["verdict"] == "false_positive"  # drives the badge in the report
     assert comment["text"].startswith("Verdict: False positive\n\nOnly a documentation example")
     done = store.get_agent_job(job["id"])
     assert done["status"] == "done" and done["verdict"] == "false_positive"

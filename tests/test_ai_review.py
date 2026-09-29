@@ -177,3 +177,33 @@ def test_every_review_path_uses_the_same_no_assumptions_rules():
     assert rules in ai_review.build_prompt({"title": "t", "occurrences": []})
     assert rules in AGENT_INSTRUCTIONS
     assert rules in mcpserver.mcp.instructions
+
+
+@pytest.mark.parametrize("text,verdict", [
+    ("Verdict: True positive\n\nSKILL.md:5 reads the credentials file.", "true_positive"),
+    ("**Verdict:** False Positive — only a label in a table.", "false_positive"),
+    ("False positive. The match is a bibliography title.", "false_positive"),
+    ("Needs More Context: the referenced script wasn't scanned.", "needs_review"),
+    ("## Verdict: needs review", "needs_review"),
+    ("I looked at it and I'm not sure yet.", None),
+    ("Is this a true positive or a false positive?", None),
+])
+def test_comment_verdict_is_read_from_how_the_text_opens(text, verdict):
+    assert store.parse_verdict(text) == verdict
+
+
+def test_comments_carry_the_verdict_for_the_badge_and_edits_move_it(scan):
+    pid, sid, finding = scan
+    fid = finding["finding_id"]
+    c = store.add_comment(pid, sid, fid, "Verdict: True positive\n\nreal", author="AI Assistant (openai)", kind="ai")
+    assert c["verdict"] == "true_positive"
+    assert "verdict" not in store.add_comment(pid, sid, fid, "just a note")
+    # Claude Agent's structured verdict wins over whatever the text says
+    assert store.add_comment(pid, sid, fid, "see above", kind="ai", verdict="false_positive")["verdict"] == "false_positive"
+    assert store.edit_comment(pid, sid, fid, c["id"], "Verdict: False positive\n\nchanged my mind")["verdict"] == "false_positive"
+    assert "verdict" not in store.edit_comment(pid, sid, fid, c["id"], "no verdict any more")
+
+
+def test_report_renders_a_verdict_badge_on_comments():
+    from kodand.reporting import _JS
+    assert "verdictBadge(c)" in _JS and "'True positive'" in _JS and "'False positive'" in _JS
