@@ -103,6 +103,7 @@ tbody tr:hover{background:rgba(255,255,255,.03)}td ul{margin:0;padding-left:18px
 .finding .full{grid-column:1/-1}
 .ev{background:rgba(0,0,0,.28);border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:10px 12px;margin:8px 0;font-size:.86rem}
 .ev .hash{color:var(--muted);font-size:.72rem;word-break:break-all}
+.rv-c-time{text-align:right;margin-top:8px}
 .caret{transition:transform .2s;color:var(--muted)}.finding.open .caret{transform:rotate(90deg)}
 .toc{columns:2;gap:26px}@media(max-width:640px){.toc{columns:1}}.toc li{margin:4px 0;break-inside:avoid}
 .toc-wrap{display:flex;flex-direction:column;gap:18px}
@@ -228,13 +229,14 @@ document.addEventListener('DOMContentLoaded',()=>{
     el.innerHTML=(comments&&comments.length)?comments.map(c=>`
       <div class="ev cm ${c.kind==='ai'?'ai':''}" data-cid="${c.id}">
         <div class="row" style="justify-content:space-between;flex-wrap:nowrap">
-          <div><b>${esc(c.author)}</b>${verdictBadge(c)} <span class="hash">${esc(c.created)}${c.edited?' (edited)':''}</span></div>
+          <div><b>${esc(c.author)}</b>${verdictBadge(c)}</div>
           <div class="row" style="gap:6px">
             <button type="button" class="sm rv-c-edit">Edit</button>
             <button type="button" class="sm rv-c-del">Delete</button>
           </div>
         </div>
         <div class="rv-c-text">${esc(c.text)}</div>
+        <div class="hash rv-c-time">${esc(c.created)}${c.edited?' (edited)':''}</div>
       </div>`).join(''):'<div class="hash">No comments yet.</div>';
     el.querySelectorAll('.rv-c-edit').forEach(btn=>btn.addEventListener('click', ()=>startEditComment(panel, btn.closest('.cm'))));
     el.querySelectorAll('.rv-c-del').forEach(btn=>btn.addEventListener('click', ()=>deleteComment(panel, btn.closest('.cm').dataset.cid)));
