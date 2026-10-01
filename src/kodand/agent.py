@@ -80,6 +80,35 @@ def claude_command(claude: str, cfg: Path, job: dict) -> list[str]:
             "--permission-prompts", "none", "--no-session-persistence", "--output-format", "json"]
 
 
+def usage_from_result(out: str) -> dict | None:
+    """Turns, duration, tokens and API-equivalent cost from `claude -p --output-format json`. Summed
+    over `modelUsage` (per-model totals for the whole run) rather than `usage`, which only covers
+    the last step of a multi-step run."""
+    try:
+        r = json.loads(out)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    if not isinstance(r, dict) or r.get("type") != "result":
+        return None
+    models = r.get("modelUsage") or {}
+    total = lambda key: sum(int(m.get(key) or 0) for m in models.values())  # noqa: E731
+    u = r.get("usage") or {}
+    return {"turns": r.get("num_turns"), "duration_ms": r.get("duration_ms"),
+            "input_tokens": total("inputTokens") if models else int(u.get("input_tokens") or 0),
+            "output_tokens": total("outputTokens") if models else int(u.get("output_tokens") or 0),
+            "cache_read_tokens": total("cacheReadInputTokens") if models else int(u.get("cache_read_input_tokens") or 0),
+            "cache_write_tokens": total("cacheCreationInputTokens") if models else int(u.get("cache_creation_input_tokens") or 0),
+            "cost_usd": round(float(r.get("total_cost_usd") or 0), 6), "models": sorted(models)}
+
+
+def total_tokens(usage: dict | None) -> int:
+    return sum((usage or {}).get(k) or 0 for k in ("input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens"))
+
+
+def _short(n: int) -> str:
+    return f"{n / 1_000_000:.1f}M" if n >= 1_000_000 else f"{n / 1000:.0f}k" if n >= 1000 else str(n)
+
+
 def _failure_reason(returncode: int, out: str, err: str) -> str:
     try:
         result = json.loads(out)
@@ -125,9 +154,11 @@ def run_job(claude: str, cfg: Path, job: dict, agent_id: str, timeout: float = D
         running[job["id"]] = proc
         if stopping is not None and stopping.is_set():
             _kill(proc)  # Ctrl+C landed while this run was starting, before the main thread could see it
+    usage = None
     try:
         out, err = proc.communicate(timeout=timeout)
         reason = _failure_reason(proc.returncode, out, err)
+        usage = usage_from_result(out)
     except subprocess.TimeoutExpired:
         _kill(proc)
         reason = f"Timed out after {int(timeout)}s without a verdict"
@@ -144,6 +175,8 @@ def run_job(claude: str, cfg: Path, job: dict, agent_id: str, timeout: float = D
     final = store.get_agent_job(job["id"])
     if final["status"] == "running" and final.get("claimed_by") == agent_id:
         final = store.fail_agent_job(job["id"], agent_id, reason)
+    if usage:
+        final = store.set_agent_job_usage(job["id"], usage)
     return final
 
 
@@ -194,6 +227,8 @@ def run_worker(claude: str, timeout: float = DEFAULT_JOB_TIMEOUT, echo=print, on
             if stop.is_set():
                 return
             took = f"{time.monotonic() - t0:.0f}s"
+            if final.get("usage"):
+                took += f", {_short(total_tokens(final['usage']))} tokens"
             if final["status"] == "done":
                 tell(f"  ✓ {store.AGENT_VERDICTS.get(final.get('verdict'), final.get('verdict'))} — {what} ({took})")
             else:

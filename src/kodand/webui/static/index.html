@@ -465,6 +465,10 @@ thead th{background:var(--surface-2);text-transform:uppercase;font-size:.7rem;le
             <button class="ghostbtn" onclick="loadAgentPanel()">↻ Refresh</button>
           </div>
         </div>
+        <div class="f">
+          <label>Usage</label>
+          <div id="agent-usage" class="small muted">–</div>
+        </div>
         <label class="flabel">Recent jobs</label>
         <div id="agent-jobs" class="small muted">–</div>
       </div>
@@ -966,17 +970,25 @@ async function verifyScanWithAgent(sid){
   }catch(e){toast(e.message,false);}
 }
 const AGENT_JOB_LABEL={queued:'Queued',running:'Verifying',done:'Done',failed:'Failed',cancelled:'Cancelled'};
+function fmtTokens(n){return n>=1e6?(n/1e6).toFixed(1)+'M':n>=1e3?Math.round(n/1e3)+'k':String(n||0);}
+function usageTotal(u){return (u.input_tokens||0)+(u.output_tokens||0)+(u.cache_read_tokens||0)+(u.cache_write_tokens||0);}
+function usageLine(t){
+  if(!t||!t.runs)return 'none yet';
+  return `${t.runs} run${t.runs===1?'':'s'} · ${fmtTokens(usageTotal(t))} tokens (${fmtTokens(t.input_tokens+t.cache_read_tokens+t.cache_write_tokens)} in, ${fmtTokens(t.output_tokens)} out) · ≈$${t.cost_usd.toFixed(2)}`;
+}
 async function loadAgentPanel(){
   try{
     const s=await api('/api/agent/status'),line=document.getElementById('agent-status-line'),l=agentStateLine(s);
     line.textContent=l.text;line.style.color=l.color;
+    const u=s.usage||{};
+    document.getElementById('agent-usage').innerHTML=`Last 24 h: ${escHtml(usageLine(u.last_24h))}<br>All time: ${escHtml(usageLine(u.all))}<br><span style="opacity:.75">The $ is the API-equivalent price Claude Code reports. On a Claude plan it counts toward your usage limits; it isn't billed.</span>`;
     const jobs=await api('/api/agent/jobs?limit=25'),el=document.getElementById('agent-jobs');
     if(!jobs.length){el.textContent='No jobs yet — send findings from a report (“Verify with Claude Agent”) or tick the option when starting a scan.';return;}
     el.innerHTML=jobs.map(j=>{
       const open=['queued','running'].includes(j.status),report=`/api/projects/${encodeURIComponent(j.project_id)}/scans/${encodeURIComponent(j.scan_id)}/report#${encodeURIComponent(j.finding_id)}`;
       const act=open?`<button onclick="agentJobAction('${j.id}','cancel')">Cancel</button>`:(j.status==='failed'||j.status==='cancelled')?`<button onclick="agentJobAction('${j.id}','retry')">Retry</button>`:'';
       return `<div class="entry two"><div><div class="name">${escHtml(AGENT_JOB_LABEL[j.status]||j.status)} · ${escHtml(j.title||j.finding_id)}</div>
-        <div class="hash">${escHtml(j.severity)} · ${escHtml(j.project_id)} / ${escHtml(j.scan_id)} · ${escHtml(j.origin)} · ${escHtml(j.updated||j.created)}${j.error?' · '+escHtml(j.error):''}</div></div>
+        <div class="hash">${escHtml(j.severity)} · ${escHtml(j.project_id)} / ${escHtml(j.scan_id)} · ${escHtml(j.origin)} · ${escHtml(j.updated||j.created)}${j.usage?` · ${fmtTokens(usageTotal(j.usage))} tokens, ${Math.round((j.usage.duration_ms||0)/1000)}s`:''}${j.error?' · '+escHtml(j.error):''}</div></div>
         <div class="acts"><a href="${report}" target="_blank" rel="noopener">Report</a>${act}</div></div>`;
     }).join('');
   }catch(e){toast(e.message,false);}

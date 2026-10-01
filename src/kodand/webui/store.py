@@ -581,6 +581,29 @@ def fail_agent_job(jid: str, agent_id: str, reason: str) -> dict:
         return _save_agent_job(job)
 
 
+def set_agent_job_usage(jid: str, usage: dict) -> dict:
+    """Record what a run used (tokens, turns, API-equivalent cost), whatever its outcome."""
+    with _agent_lock():
+        job = get_agent_job(jid)
+        job["usage"] = usage
+        return _save_agent_job(job)
+
+
+def agent_usage_totals(jobs: list) -> dict:
+    def tally(selected):
+        t = {"runs": 0, "input_tokens": 0, "output_tokens": 0, "cache_read_tokens": 0, "cache_write_tokens": 0, "cost_usd": 0.0}
+        for j in selected:
+            u = j.get("usage") or {}
+            t["runs"] += 1
+            for k in ("input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens"):
+                t[k] += int(u.get(k) or 0)
+            t["cost_usd"] += float(u.get("cost_usd") or 0)
+        t["cost_usd"] = round(t["cost_usd"], 4)
+        return t
+    used = [j for j in jobs if j.get("usage")]
+    return {"all": tally(used), "last_24h": tally(j for j in used if _age(j.get("finished") or j.get("updated")) <= 86400)}
+
+
 def release_agent_job(jid: str, agent_id: str) -> None:
     """Put a job back in the queue untouched — the worker was stopped (Ctrl+C) mid-run."""
     with _agent_lock():
@@ -636,7 +659,8 @@ def agent_status() -> dict:
     state = "offline" if not workers else "busy" if count("running") else "idle"
     return {"state": state, "workers": len(workers), "queued": count("queued"), "running": count("running"),
             "done": count("done"), "failed": count("failed"),
-            "parallel": sum(w.get("parallel", 1) for w in workers), "service": any(w.get("service") for w in workers)}
+            "parallel": sum(w.get("parallel", 1) for w in workers), "service": any(w.get("service") for w in workers),
+            "usage": agent_usage_totals(jobs)}
 
 
 # --- Console auth: one local password + server-side sessions ---
@@ -820,7 +844,17 @@ def mark_verifying(pid: str, sid: str, verified: int, total: int, finding_id: st
     write_scan_progress(pid, sid, "verifying", {"verified": verified, "total": total, "finding_id": finding_id})
     _touch_registry(pid, sid, source="mcp")
 
-def scan_activity(pid: str, sid: str) -> dict:
+def _agent_queues(jobs: list, worker_running: bool) -> dict:
+    """{(project, scan): {"queued", "running", "worker"}} for scans with open Claude Agent jobs."""
+    out = {}
+    for j in jobs:
+        if j["status"] in AGENT_OPEN_STATES:
+            q = out.setdefault((j["project_id"], j["scan_id"]), {"queued": 0, "running": 0, "worker": worker_running})
+            q[j["status"]] += 1
+    return out
+
+
+def scan_activity(pid: str, sid: str, agent_queue: dict | None = None) -> dict:
     """Two independent statuses for one scan, since "the scan finished" and "AI verification of
     its findings finished" are separate facts a user cares about separately:
       - scan_status: unknown/running/completed/interrupted/failed — the scan pipeline itself,
@@ -857,6 +891,16 @@ def scan_activity(pid: str, sid: str) -> dict:
         else:
             verify_status, verify_label = "interrupted", f"AI Verification Interrupted ({verified}/{total})"
 
+    # Claude Agent jobs still open for this scan: verification is pending, not interrupted — it runs
+    # whenever the worker is up, so silence since the last verdict says nothing about it having died
+    if agent_queue is None:
+        agent_queue = _agent_queues(list_agent_jobs(pid, sid, limit=100_000), bool(list_agent_workers())).get((pid, sid))
+    if agent_queue and scan_status == "completed":
+        q, r = agent_queue["queued"], agent_queue["running"]
+        verify_status = "pending"
+        verify_label = (f"Claude Agent: {r} running · {q} queued" if agent_queue["worker"]
+                        else f"Waiting for Claude Agent ({q + r} queued)")
+
     if verify_status == "pending":
         status, status_label = "verifying", verify_label
     elif verify_status:
@@ -882,9 +926,11 @@ def list_scan_activity(limit: int = 50) -> list:
     than raising — one dead entry must never 500 the whole dashboard for every OTHER scan too."""
     reg = _load_registry()
     out, stale_keys = [], []
+    queues = _agent_queues(list_agent_jobs(limit=100_000), bool(list_agent_workers()))  # once, not per scan
     for key, entry in reg.items():
         try:
-            out.append({**entry, **scan_activity(entry["project"], entry["scan"])})
+            queue = queues.get((entry["project"], entry["scan"]), {})
+            out.append({**entry, **scan_activity(entry["project"], entry["scan"], agent_queue=queue)})
         except FileNotFoundError:
             stale_keys.append(key)
     if stale_keys:

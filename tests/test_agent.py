@@ -263,7 +263,9 @@ FAKE_CLAUDE = textwrap.dedent("""\
     if mode == "complete":
         from kodand import mcpserver
         mcpserver.complete_job(job_id, "true_positive", "fake verdict")
-        print(json.dumps({{"type": "result", "is_error": False, "result": "done"}}))
+        print(json.dumps({{"type": "result", "is_error": False, "result": "done", "num_turns": 4, "duration_ms": 1500,
+                          "total_cost_usd": 0.05, "modelUsage": {{"m": {{"inputTokens": 10, "outputTokens": 900,
+                          "cacheReadInputTokens": 30000, "cacheCreationInputTokens": 9000}}}}}}))
     elif mode == "silent":
         print(json.dumps({{"type": "result", "is_error": False, "result": "I looked but forgot to call complete_job"}}))
     elif mode == "error":
@@ -431,3 +433,42 @@ def test_worker_heartbeat_reports_parallel_and_service(monkeypatch):
     store.touch_agent_worker(int(ME), _ago(5), parallel=3, service=True)
     s = store.agent_status()
     assert s["parallel"] == 3 and s["service"] is True
+
+
+# --- visibility: usage + Live Scans ------------------------------------------------------------------
+
+def test_usage_is_summed_over_model_usage_not_last_step():
+    out = json.dumps({"type": "result", "num_turns": 6, "duration_ms": 27000, "total_cost_usd": 0.31,
+                      "usage": {"input_tokens": 1, "output_tokens": 50},  # last step only
+                      "modelUsage": {"a": {"inputTokens": 20, "outputTokens": 1500, "cacheReadInputTokens": 40000,
+                                           "cacheCreationInputTokens": 8000},
+                                     "b": {"inputTokens": 5, "outputTokens": 100}}})
+    u = agent.usage_from_result(out)
+    assert u["input_tokens"] == 25 and u["output_tokens"] == 1600 and u["cache_read_tokens"] == 40000
+    assert u["turns"] == 6 and u["cost_usd"] == 0.31 and agent.total_tokens(u) == 49625
+    assert agent.usage_from_result("not json") is None and agent.usage_from_result('{"type": "other"}') is None
+
+
+def test_worker_records_usage_and_status_totals_it(tmp_path, fake_claude):
+    pid, sid, findings = _scan(tmp_path / "repo")
+    job = store.enqueue_agent_job(pid, sid, findings[0]["finding_id"])
+    lines = []
+    agent.run_worker(fake_claude, once=True, echo=lines.append, poll=0.01)
+    u = store.get_agent_job(job["id"])["usage"]
+    assert u["output_tokens"] == 900 and u["turns"] == 4
+    assert any("40k tokens" in m for m in lines)
+    totals = store.agent_status()["usage"]
+    assert totals["all"]["runs"] == 1 and totals["last_24h"]["output_tokens"] == 900 and totals["all"]["cost_usd"] == 0.05
+
+
+def test_live_scans_shows_queued_agent_work_as_pending_not_interrupted(tmp_path, monkeypatch):
+    pid, sid, findings = _scan(tmp_path)
+    store.enqueue_scan_verification(pid, sid)
+    # long after the last verdict: this used to read "Interrupted"
+    monkeypatch.setattr(store, "VERIFY_STALE_AFTER", -1)
+    act = next(a for a in store.list_scan_activity() if a["scan"] == sid)
+    assert act["verify_status"] == "pending" and act["verify_status_label"] == f"Waiting for Claude Agent ({len(findings)} queued)"
+    store.touch_agent_worker(int(ME), _ago(5))
+    store.claim_next_agent_job(ME)
+    a2 = store.scan_activity(pid, sid)
+    assert a2["status"] == "verifying" and a2["verify_status_label"] == f"Claude Agent: 1 running · {len(findings) - 1} queued"
