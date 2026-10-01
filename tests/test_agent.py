@@ -268,6 +268,13 @@ FAKE_CLAUDE = textwrap.dedent("""\
         print(json.dumps({{"type": "result", "is_error": False, "result": "I looked but forgot to call complete_job"}}))
     elif mode == "error":
         print(json.dumps({{"type": "result", "is_error": True, "result": "Not logged in"}})); sys.exit(1)
+    elif mode == "slow":
+        # records its run window so a test can measure how many ran at once
+        t0 = time.time(); time.sleep(1.0)
+        open(os.environ["FAKE_CLAUDE_ARGS"] + ".windows", "a").write(f"{{t0}} {{time.time()}}\\n")
+        from kodand import mcpserver
+        mcpserver.complete_job(job_id, "true_positive", "slow fake verdict")
+        print(json.dumps({{"type": "result", "is_error": False, "result": "done"}}))
     elif mode == "hang":
         # like Claude Code's own MCP server: a child that inherits (and holds open) our output pipe
         import subprocess
@@ -352,3 +359,75 @@ def test_report_has_verdict_filter_and_mark_as_button():
     from kodand.reporting import _JS
     assert "updateVerdictFilter" in _JS and "rv-c-apply" in _JS and "panel._setStatus" in _JS
     assert "VERDICT_STATUS={true_positive:'confirmed',false_positive:'false-positive'" in _JS
+
+
+# --- parallel worker + background service ----------------------------------------------------------
+
+def test_claim_respects_max_running(tmp_path):
+    for repo in ("a", "b"):
+        pid, sid, _ = _scan(tmp_path / repo)
+        store.enqueue_scan_verification(pid, sid)
+    assert len(store.list_agent_jobs()) >= 3
+    got = [store.claim_next_agent_job(ME, max_running=2) for _ in range(3)]
+    assert got[0] and got[1] and got[2] is None
+
+
+def test_parallel_worker_runs_up_to_n_at_once(tmp_path, fake_claude, monkeypatch):
+    monkeypatch.setenv("FAKE_CLAUDE_MODE", "slow")
+    pid, sid, findings = _scan(tmp_path / "repo")
+    pid2, sid2, findings2 = _scan(tmp_path / "repo2")
+    jobs = store.enqueue_scan_verification(pid, sid) + store.enqueue_scan_verification(pid2, sid2)
+    assert len(jobs) >= 4
+    lines = []
+    agent.run_worker(fake_claude, once=True, echo=lines.append, poll=0.01, parallel=3)
+    assert all(store.get_agent_job(j["id"])["status"] == "done" for j in jobs)
+    windows = [tuple(map(float, line.split())) for line in (tmp_path / "args.jsonl.windows").read_text().splitlines()]
+    peak = max(sum(1 for s, e in windows if s <= t < e) for t, _ in windows)
+    assert 2 <= peak <= 3
+    assert sum("✓ True positive —" in m for m in lines) == len(jobs)
+
+
+@pytest.mark.parametrize("sig", ["SIGINT", "SIGTERM"])
+def test_stopping_a_parallel_worker_requeues_every_running_finding(tmp_path, fake_claude, sig):
+    import signal
+    pid, sid, findings = _scan(tmp_path / "repo")
+    store.enqueue_scan_verification(pid, sid)
+    env = {**os.environ, "PATH": f"{Path(fake_claude).parent}:{os.environ['PATH']}", "FAKE_CLAUDE_MODE": "hang"}
+    w = subprocess.Popen([sys.executable, "-m", "kodand", "agent", "--parallel", "2"], env=env, text=True,
+                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                         preexec_fn=lambda: signal.signal(signal.SIGINT, signal.SIG_DFL))
+    deadline = time.time() + 20
+    while time.time() < deadline and sum(j["status"] == "running" for j in store.list_agent_jobs()) < 2:
+        time.sleep(0.2)
+    assert sum(j["status"] == "running" for j in store.list_agent_jobs()) == 2
+    w.send_signal(getattr(signal, sig))
+    out, _ = w.communicate(timeout=20)
+    assert "went back to the queue" in out
+    assert all(j["status"] == "queued" for j in store.list_agent_jobs())
+    assert store.agent_status()["state"] == "offline"
+
+
+def test_service_unit_runs_this_install_with_claudes_path(monkeypatch):
+    unit = agent.service_unit("/opt/claude/bin/claude", parallel=3)
+    assert f'ExecStart="{sys.executable}" -m kodand agent --parallel 3' in unit
+    assert 'Environment="PATH=/opt/claude/bin:' in unit and f'Environment="KODAND_HOME={AGENT_HOME}"' in unit
+    assert "KillMode=mixed" in unit and "WantedBy=default.target" in unit
+    assert 'Environment="PYTHONUNBUFFERED=1"' in unit
+    assert f"WorkingDirectory={agent.workdir()}\n" in unit  # systemd rejects a quoted WorkingDirectory
+
+
+def test_service_install_refuses_without_systemd(monkeypatch):
+    monkeypatch.setattr(agent.sys, "platform", "darwin")
+    with pytest.raises(RuntimeError, match="needs Linux with systemd"):
+        agent.install_service("/usr/bin/claude")
+
+
+def test_service_uninstall_when_absent(monkeypatch, tmp_path):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    assert agent.uninstall_service() is False
+
+
+def test_worker_heartbeat_reports_parallel_and_service(monkeypatch):
+    store.touch_agent_worker(int(ME), _ago(5), parallel=3, service=True)
+    s = store.agent_status()
+    assert s["parallel"] == 3 and s["service"] is True

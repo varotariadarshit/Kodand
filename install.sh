@@ -12,6 +12,12 @@ if command -v systemctl >/dev/null 2>&1 && systemctl --user is-enabled kodand-ui
   systemctl --user restart kodand-ui.service
   echo "Restarted kodand-ui.service to load the new build."
 fi
+# same for the Claude Agent worker installed with `kodand agent --install-service`; its stop re-queues
+# any finding it was verifying, so a restart loses no work
+if command -v systemctl >/dev/null 2>&1 && systemctl --user is-enabled kodand-agent.service >/dev/null 2>&1; then
+  systemctl --user restart kodand-agent.service
+  echo "Restarted kodand-agent.service to load the new build."
+fi
 # kodand mcp stdio server processes are spawned ad hoc by MCP clients (e.g. `claude mcp add
 # kodand -- kodand mcp`), not systemd-managed, so they never got the same "restart to pick up
 # the new build" treatment as kodand-ui.service above — a long-lived one can silently keep

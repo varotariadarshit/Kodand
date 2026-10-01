@@ -543,13 +543,14 @@ def expire_agent_jobs() -> None:
                 j.update(status="failed", error="Timed out waiting for a verdict", finished=_now()); _save_agent_job(j)
 
 
-def claim_next_agent_job(agent_id: str) -> dict | None:
-    """The next job for this worker to run, or None while it still has one running. Manual
-    requests go before auto-verify batches so a click in the UI doesn't wait behind a whole scan."""
+def claim_next_agent_job(agent_id: str, max_running: int = 1) -> dict | None:
+    """The next job for this worker to run, or None while it already runs `max_running` (its
+    --parallel). Manual requests go before auto-verify batches so a click in the UI doesn't wait
+    behind a whole scan."""
     expire_agent_jobs()
     with _agent_lock():
         jobs = _load_agent_jobs()
-        if any(j.get("claimed_by") == agent_id and j["status"] == "running" for j in jobs):
+        if sum(1 for j in jobs if j.get("claimed_by") == agent_id and j["status"] == "running") >= max_running:
             return None
         queued = sorted((j for j in jobs if j["status"] == "queued"), key=lambda j: (j.get("origin") != "manual", j.get("seq", 0)))
         if not queued:
@@ -611,9 +612,10 @@ def retry_agent_job(jid: str) -> dict:
         return _save_agent_job(job)
 
 
-def touch_agent_worker(pid: int, started_at: str, stopped: bool = False) -> None:
+def touch_agent_worker(pid: int, started_at: str, stopped: bool = False, parallel: int = 1, service: bool = False) -> None:
     _write_json_atomic(agent_dir() / "workers" / f"{pid}.json",
-                       {"pid": pid, "started_at": started_at, "last_seen": _now(), "stopped": stopped})
+                       {"pid": pid, "started_at": started_at, "last_seen": _now(), "stopped": stopped,
+                        "parallel": parallel, "service": service})
 def list_agent_workers() -> list:
     """Live `kodand agent` workers — same heartbeat/TTL/liveness rules as the MCP presence records."""
     out = []
@@ -633,7 +635,8 @@ def agent_status() -> dict:
     count = lambda *states: sum(1 for j in jobs if j["status"] in states)  # noqa: E731
     state = "offline" if not workers else "busy" if count("running") else "idle"
     return {"state": state, "workers": len(workers), "queued": count("queued"), "running": count("running"),
-            "done": count("done"), "failed": count("failed")}
+            "done": count("done"), "failed": count("failed"),
+            "parallel": sum(w.get("parallel", 1) for w in workers), "service": any(w.get("service") for w in workers)}
 
 
 # --- Console auth: one local password + server-side sessions ---

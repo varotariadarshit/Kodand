@@ -197,15 +197,23 @@ def mcp(agent: bool = typer.Option(False, '--agent', help="Serve a `kodand agent
 
 @app.command()
 def agent(once: bool = typer.Option(False, '--once', help='Run the jobs queued right now, then exit instead of waiting for more.'),
-          timeout: int = typer.Option(600, '--timeout', help='Seconds one finding may take before it is marked failed.')):
+          timeout: int = typer.Option(600, '--timeout', help='Seconds one finding may take before it is marked failed.'),
+          parallel: int = typer.Option(1, '--parallel', min=1, max=8, help='Verify this many findings at once (each uses your Claude plan).'),
+          install_service: bool = typer.Option(False, '--install-service', help='Run the worker in the background as a systemd user service (Linux), with the --parallel given.'),
+          uninstall_service: bool = typer.Option(False, '--uninstall-service', help='Stop and remove that background service.')):
     """Verify the findings you send from the web console with your own Claude Code — leave it running in a terminal.
 
     Each finding gets its own headless Claude Code run (your login; Kodand never sees it) that can
     only use Kodand's tools. Nothing runs, and nothing is spent, while no finding is waiting.
     """
     import shutil
+    import signal
 
     from kodand.webui import store
+    if uninstall_service:
+        from kodand.agent import uninstall_service as remove
+        c.print("Background service stopped and removed." if remove() else "No background service was installed.")
+        return
     claude = shutil.which("claude")
     if not claude:
         c.print("[red]Claude Code not found on PATH.[/red] Install it and sign in first: https://code.claude.com/docs/en/quickstart")
@@ -214,12 +222,31 @@ def agent(once: bool = typer.Option(False, '--once', help='Run the jobs queued r
         import mcp as _  # noqa: F401 — each job's Claude run loads `kodand mcp --agent`
     except ImportError:
         c.print("[red]MCP dependencies missing.[/red] Install with: pip install 'kodand[mcp]'"); raise typer.Exit(2)
+    if install_service:
+        from kodand.agent import SERVICE_NAME
+        from kodand.agent import install_service as install
+        try:
+            path = install(claude, parallel)
+        except RuntimeError as e:
+            c.print(f"[red]{e}[/red]"); raise typer.Exit(2)
+        c.print(f"Claude Agent now runs in the background ({parallel} at a time): {path}\n"
+                f"  status: systemctl --user status {SERVICE_NAME}\n"
+                f"  logs:   journalctl --user -u {SERVICE_NAME} -f\n"
+                "  remove: kodand agent --uninstall-service\n"
+                "It keeps running after you log out only if lingering is on (loginctl enable-linger).")
+        return
     from kodand.agent import run_worker
     if not store.load_mcp_settings().get("data_sharing_acknowledged"):
         c.print("[yellow]Heads-up:[/yellow] MCP data sharing isn't acknowledged yet (web console → Settings → MCP Server), "
                 "so Claude Agent can't read any project until you do.")
-    c.print(f"[bold #38bdf8]Kodand Claude Agent[/] — workspace {store.workspace_root()}")
+    # a service stop (SIGTERM) gets the same clean shutdown as Ctrl+C: runs stopped, findings re-queued
+    def _stop_on_sigterm(*_):
+        raise KeyboardInterrupt
+    signal.signal(signal.SIGTERM, _stop_on_sigterm)
+    c.print(f"[bold #38bdf8]Kodand Claude Agent[/] — workspace {store.workspace_root()}"
+            + (f" — {parallel} at a time" if parallel > 1 else ""))
     try:
-        run_worker(claude, timeout=timeout, once=once, echo=lambda m: c.print(m, highlight=False, markup=False))
+        run_worker(claude, timeout=timeout, once=once, parallel=parallel,
+                   echo=lambda m: c.print(m, highlight=False, markup=False))
     except KeyboardInterrupt:
         c.print("Stopped. Any finding in progress went back to the queue.")

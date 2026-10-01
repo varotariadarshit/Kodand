@@ -924,7 +924,8 @@ const AGENT_STATE={
 };
 function agentStateLine(s){const st=AGENT_STATE[s.state]||{text:s.state,color:'var(--text-faint)'};
   const q=s.queued||s.running?` · ${s.running} running, ${s.queued} queued`:'';
-  return {text:st.text+q+(s.claude_found?'':' · Claude Code not found on PATH'),color:st.color};}
+  const how=s.state==='offline'?'':`${s.parallel>1?` · ${s.parallel} at a time`:''}${s.service?' · background service':''}`;
+  return {text:st.text+how+q+(s.claude_found?'':' · Claude Code not found on PATH'),color:st.color};}
 async function toggleScanAgent(){
   const on=document.getElementById('scan-agent').checked,hint=document.getElementById('scan-agent-hint');
   document.getElementById('scan-agent-opts').classList.toggle('hide',!on);
