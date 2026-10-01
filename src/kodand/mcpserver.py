@@ -220,8 +220,12 @@ def verify_finding(project_id: str, scan_id: str, finding_id: str) -> str:
     file_contents = store.read_scan_files(project_id, scan_id, finding.get("affected_files", []))
     settings = store.load_ai_settings()
     provider = settings.get("active_provider", "openai")
-    text = ai_review.call_provider(provider, settings.get(provider, {}), finding, file_contents=file_contents,
-                                   project_id=project_id, scan_id=scan_id)
+    try:
+        text = ai_review.call_provider(provider, settings.get(provider, {}), finding, file_contents=file_contents,
+                                       project_id=project_id, scan_id=scan_id)
+    except ai_review.NotConfiguredError:
+        raise ValueError("No AI provider is set up in Kodand (Settings → AI assistant). Verify the finding "
+                         "yourself instead: get_finding + get_file_content, then add_finding_comment.") from None
     store.add_comment(project_id, scan_id, finding_id, text, author=f"AI Assistant ({provider}) via MCP", kind="ai")
     _touch_verification(project_id, scan_id, finding_id)
     return text

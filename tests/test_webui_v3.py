@@ -426,10 +426,13 @@ def test_custom_provider_requires_model():
 
 
 def test_ai_review_fails_cleanly_without_config(tmp_path, monkeypatch):
-    from kodand.webui import store
-
-    monkeypatch.setattr(store, "load_ai_settings", lambda: {"active_provider": "openai", "openai": {}})
+    from kodand.webui import ai_review, store
     pid, sid, fid = _scan_with_finding(tmp_path, "Review-NoKey")
-    r = client.post(f"/api/projects/{pid}/scans/{sid}/findings/{fid}/ai-review")
-    assert r.status_code == 502
+    for provider in ("openai", "claude", "gemini"):
+        monkeypatch.setattr(store, "load_ai_settings", lambda p=provider: {"active_provider": p, p: {}})
+        r = client.post(f"/api/projects/{pid}/scans/{sid}/findings/{fid}/ai-review")
+        # the same general message whichever provider is selected — not "Claude API key not configured"
+        assert r.status_code == 400 and r.json()["detail"] == ai_review.NOT_CONFIGURED_MESSAGE
+        r = client.post(f"/api/projects/{pid}/scans/{sid}/findings/{fid}/ai-chat", json={"message": "why?"})
+        assert r.status_code == 400 and r.json()["detail"] == ai_review.NOT_CONFIGURED_MESSAGE
     client.delete(f"/api/projects/{pid}")

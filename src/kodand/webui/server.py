@@ -546,6 +546,8 @@ def api_ai_review(pid: str, sid: str, finding_id: str):
         # the scan ids let the model open other scanned files when the affected ones aren't enough
         text = ai_review.call_provider(provider, settings.get(provider, {}), finding, file_contents=file_contents,
                                        project_id=pid, scan_id=sid)
+    except ai_review.NotConfiguredError:
+        raise HTTPException(400, ai_review.NOT_CONFIGURED_MESSAGE)
     except Exception as e:
         raise HTTPException(502, f"AI review failed ({provider}): {e}")
     return store.add_comment(pid, sid, finding_id, text, author=f"AI Assistant ({provider})", kind="ai")
@@ -635,6 +637,8 @@ def api_ai_chat(pid: str, sid: str, finding_id: str, payload: dict = Body(...)):
     try:
         reply = ai_review.chat_reply(provider, settings.get(provider, {}), finding, prior_comments, message,
                                      file_contents=file_contents, project_id=pid, scan_id=sid)
+    except ai_review.NotConfiguredError:
+        raise HTTPException(400, ai_review.NOT_CONFIGURED_MESSAGE)
     except Exception as e:
         raise HTTPException(502, f"AI chat failed ({provider}): {e}")
     ai_comment = store.add_comment(pid, sid, finding_id, reply, author=f"AI Assistant ({provider})", kind="ai")

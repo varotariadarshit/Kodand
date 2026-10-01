@@ -84,13 +84,22 @@ def _gemini_contents(turns: list) -> list:
     return [{"role": "model" if t["role"] == "assistant" else "user", "parts": [{"text": t["content"]}]} for t in turns]
 
 
+class NotConfiguredError(RuntimeError):
+    """No usable AI provider set up. The message names what's missing (for Settings' Test connection);
+    the review buttons show NOT_CONFIGURED_MESSAGE instead, whichever provider is selected."""
+
+
+NOT_CONFIGURED_MESSAGE = ("AI Review isn't set up yet. Open Settings → AI assistant, choose a provider, "
+                          "add its API key and save — or use Verify with Claude Agent, which needs no API key.")
+
+
 def _require_key(provider: str, cfg: dict) -> None:
     names = {"openai": "ChatGPT (OpenAI)", "claude": "Claude", "gemini": "Gemini"}
     if provider in names and not cfg.get("api_key"):
-        raise RuntimeError(f"{names[provider]} API key not configured")
+        raise NotConfiguredError(f"{names[provider]} API key not configured")
     if provider == "custom":
-        if not cfg.get("endpoint"): raise RuntimeError("Custom AI agent endpoint not configured")
-        if not cfg.get("model"): raise RuntimeError("Custom AI agent model not configured (required, e.g. 'openai/gpt-4o-mini' for OpenRouter)")
+        if not cfg.get("endpoint"): raise NotConfiguredError("Custom AI agent endpoint not configured")
+        if not cfg.get("model"): raise NotConfiguredError("Custom AI agent model not configured (required, e.g. 'openai/gpt-4o-mini' for OpenRouter)")
 
 
 def _gemini_url(cfg: dict) -> str:
@@ -125,7 +134,7 @@ def _complete(provider: str, cfg: dict, turns: list) -> str:
         # OpenAI-compat mode, LM Studio, and most self-hosted gateways.
         data = _post_json(cfg["endpoint"], _custom_headers(cfg), {"model": cfg["model"], "messages": _oai_messages(turns)})
         return _custom_text(data)
-    raise RuntimeError(f"Unknown AI provider '{provider}'")
+    raise NotConfiguredError(f"Unknown AI provider '{provider}'")
 
 
 def _custom_text(data: dict) -> str:
@@ -268,7 +277,7 @@ def _review(provider: str, cfg: dict, turns: list, ctx: tuple | None) -> str:
         return _tools_claude(cfg, turns, ctx)
     if provider == "gemini":
         return _tools_gemini(cfg, turns, ctx)
-    raise RuntimeError(f"Unknown AI provider '{provider}'")
+    raise NotConfiguredError(f"Unknown AI provider '{provider}'")
 
 
 def call_provider(provider: str, cfg: dict, finding: dict, file_contents: dict | None = None,

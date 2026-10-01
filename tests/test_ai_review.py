@@ -207,3 +207,16 @@ def test_comments_carry_the_verdict_for_the_badge_and_edits_move_it(scan):
 def test_report_renders_a_verdict_badge_on_comments():
     from kodand.reporting import _JS
     assert "verdictBadge(c)" in _JS and "'True positive'" in _JS and "'False positive'" in _JS
+
+
+@pytest.mark.parametrize("provider,cfg", [("claude", {}), ("openai", {}), ("gemini", {}), ("custom", {"endpoint": "https://x"}), ("nope", {})])
+def test_missing_setup_is_one_error_type_whatever_the_provider(provider, cfg):
+    with pytest.raises(ai_review.NotConfiguredError):
+        ai_review.call_provider(provider, cfg, {"title": "t", "finding_id": "F"})
+
+
+def test_mcp_verify_finding_without_a_provider_points_the_agent_at_doing_it_itself(scan):
+    pid, sid, finding = scan
+    store.save_ai_settings({"active_provider": "claude"})
+    with pytest.raises(ValueError, match="add_finding_comment"):
+        mcpserver.verify_finding(pid, sid, finding["finding_id"])
