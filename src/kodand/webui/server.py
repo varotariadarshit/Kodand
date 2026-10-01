@@ -27,6 +27,27 @@ from kodand.webui.scan_service import MAX_SCAN_FILES, load_builtin_templates, ru
 
 STATIC_DIR = Path(__file__).parent / "static"
 app = FastAPI(title="Kodand UI", version=__version__)
+MAINTENANCE_INTERVAL = 3600
+
+
+def run_maintenance() -> dict:
+    """Housekeeping the console does in the background: old finished Claude Agent job records."""
+    return {"agent_jobs_pruned": store.prune_agent_jobs()}
+
+
+def _maintenance_loop(stop: threading.Event) -> None:
+    while True:
+        try:
+            run_maintenance()
+        except Exception:  # noqa: BLE001 — a failed round must never take the console down; retry next round
+            pass
+        if stop.wait(MAINTENANCE_INTERVAL):
+            return
+
+
+@app.on_event("startup")
+def _start_maintenance() -> None:
+    threading.Thread(target=_maintenance_loop, args=(threading.Event(),), daemon=True).start()
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 INDEX = STATIC_DIR / "index.html"
 LOGO = STATIC_DIR / "kodand-logo-full.png"
@@ -234,7 +255,7 @@ def meta():
         "custom_templates": len(store.list_custom_templates()), "regex_indicators": regex_total,
         "categories": [{"code": c, "name": category_name(c), "color": category_color(c)} for c in cats],
         "taxonomies": taxonomies,
-        "workspace": str(store.workspace_root()), "max_scan_files": MAX_SCAN_FILES,
+        "workspace": str(store.workspace_root()), "max_scan_files": MAX_SCAN_FILES, "cpu_count": os.cpu_count() or 1,
     }
 
 
@@ -304,15 +325,9 @@ def api_delete_project_suppression(pid: str, index: int):
 @app.get("/api/projects/{pid}/scans")
 def api_scans(pid: str):
     try:
-        scans = store.list_scans(pid)
+        return store.list_scans(pid)
     except FileNotFoundError:
         raise HTTPException(404, "Project not found")
-    for s in scans:
-        try:
-            s["verdicts"] = store.verdict_summary(pid, s["id"])
-        except FileNotFoundError:
-            pass  # a scan that failed before writing analysis.json has nothing to count
-    return scans
 
 
 def _agent_filters(min_severity, max_findings) -> tuple[str | None, int | None]:
@@ -638,6 +653,19 @@ def api_agent_status():
 @app.get("/api/agent/jobs")
 def api_agent_jobs(project: str | None = None, scan: str | None = None, limit: int = 200):
     return store.list_agent_jobs(project, scan, limit=min(max(1, limit), 1000))
+
+
+@app.post("/api/agent/jobs/cancel")
+def api_agent_cancel_jobs(payload: dict = Body(default={})):
+    """Bulk cancel: `ids` for specific jobs, or `all: true` to clear the whole queue. Running ones are
+    stopped by the worker within seconds."""
+    payload = payload or {}
+    if payload.get("all"):
+        return {"cancelled": store.cancel_agent_jobs()}
+    ids = payload.get("ids")
+    if not isinstance(ids, list) or not ids:
+        raise HTTPException(400, "Pass ids (a list of job ids) or all: true")
+    return {"cancelled": store.cancel_agent_jobs(ids=[str(i) for i in ids])}
 
 
 @app.post("/api/agent/jobs/{jid}/cancel")

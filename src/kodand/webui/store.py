@@ -55,13 +55,18 @@ def delete_project(pid: str) -> bool:
     if d.is_dir():
         shutil.rmtree(d)
         _remove_project_from_registry(pid)
+        cancel_agent_jobs(pid=pid)  # nothing left for Claude Agent to read: don't spend runs on it
         return True
     return False
 def set_project_mcp_sharing(pid: str, shared: bool) -> dict:
     d = _project_dir(pid); meta_path = d/"project.json"
     data = json.loads(meta_path.read_text()); data["mcp_shared"] = bool(shared)
     if shared: data["mcp_shared_since"] = _now()
-    meta_path.write_text(json.dumps(data, indent=2)); return data
+    meta_path.write_text(json.dumps(data, indent=2))
+    if not shared:
+        # Claude Agent reads through the MCP tools, which now refuse this project: queued jobs could only fail
+        data = {**data, "cancelled_agent_jobs": cancel_agent_jobs(pid=pid)}
+    return data
 # Project and scan ids arrive from URLs and MCP tool arguments. Anything but the exact shape
 # create_project/new_scan_dir mint is refused, so an id like "../other-project" can never
 # walk outside its project — the MCP sharing gate depends on this.
@@ -91,7 +96,8 @@ def save_scan_meta(pid: str, sid: str, meta: dict) -> None:
     sd = scan_dir(pid, sid); sd.mkdir(parents=True, exist_ok=True); (sd/"scan.json").write_text(json.dumps(meta, indent=2))
 def delete_scan(pid: str, sid: str) -> bool:
     sd = scan_dir(pid, sid)
-    if sd.exists(): shutil.rmtree(sd); return True
+    if sd.exists():
+        shutil.rmtree(sd); cancel_agent_jobs(pid=pid, sid=sid); return True
     return False
 def delete_scan_target(pid: str, sid: str) -> bool:
     """Remove just the raw scanned source (target/), keeping analysis.json/reports/review history intact."""
@@ -665,7 +671,10 @@ def agent_usage_totals(jobs: list) -> dict:
         t["cost_usd"] = round(t["cost_usd"], 4)
         return t
     used = [j for j in jobs if j.get("usage")]
-    return {"all": tally(used), "last_24h": tally(j for j in used if _age(j.get("finished") or j.get("updated")) <= 86400)}
+    everything = tally(used)
+    for k, v in (_read_json(_usage_rollup_path()) or {}).items():  # pruned jobs still count all-time
+        if k in everything: everything[k] = round(everything[k] + v, 4) if k == "cost_usd" else everything[k] + v
+    return {"all": everything, "last_24h": tally(j for j in used if _age(j.get("finished") or j.get("updated")) <= 86400)}
 
 
 def release_agent_job(jid: str, agent_id: str) -> None:
@@ -687,6 +696,51 @@ def cancel_agent_job(jid: str) -> dict:
             raise ValueError(f"Job is already {job['status']}")
         job.update(status="cancelled", finished=_now()); job.pop("claimed_by", None)
         return _save_agent_job(job)
+
+
+def cancel_agent_jobs(ids: list | None = None, pid: str | None = None, sid: str | None = None) -> int:
+    """Cancel open jobs — the given ids, or every open job of a project/scan, or (no filter) the whole
+    queue. A worker running one notices within seconds and stops that Claude run. Returns how many."""
+    wanted = set(ids or [])
+    n = 0
+    with _agent_lock():
+        for j in _load_agent_jobs():
+            if j["status"] not in AGENT_OPEN_STATES: continue
+            if ids is not None and j["id"] not in wanted: continue
+            if pid is not None and j["project_id"] != pid: continue
+            if sid is not None and j["scan_id"] != sid: continue
+            j.update(status="cancelled", finished=_now()); j.pop("claimed_by", None)
+            _save_agent_job(j); n += 1
+    return n
+
+
+AGENT_JOB_RETENTION_DAYS = 30
+
+
+def _usage_rollup_path() -> Path:
+    return agent_dir() / "usage_rollup.json"
+
+
+def prune_agent_jobs(max_age_days: int = AGENT_JOB_RETENTION_DAYS) -> int:
+    """Delete finished job records older than `max_age_days`, folding their usage into a running total
+    first so Settings' all-time usage doesn't drop. Returns how many were removed."""
+    cutoff = max_age_days * 86400
+    with _agent_lock():
+        old = [j for j in _load_agent_jobs()
+               if j["status"] not in AGENT_OPEN_STATES and _age(j.get("finished") or j.get("updated")) > cutoff]
+        if not old: return 0
+        rollup = _read_json(_usage_rollup_path()) or {}
+        for j in old:
+            u = j.get("usage") or {}
+            if u:
+                rollup["runs"] = rollup.get("runs", 0) + 1
+                for k in ("input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens"):
+                    rollup[k] = rollup.get(k, 0) + int(u.get(k) or 0)
+                rollup["cost_usd"] = round(rollup.get("cost_usd", 0.0) + float(u.get("cost_usd") or 0), 6)
+        _write_json_atomic(_usage_rollup_path(), rollup)
+        for j in old:
+            _agent_job_path(j["id"]).unlink(missing_ok=True)
+    return len(old)
 
 
 def retry_agent_job(jid: str) -> dict:

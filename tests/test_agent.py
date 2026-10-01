@@ -472,3 +472,44 @@ def test_live_scans_shows_queued_agent_work_as_pending_not_interrupted(tmp_path,
     store.claim_next_agent_job(ME)
     a2 = store.scan_activity(pid, sid)
     assert a2["status"] == "verifying" and a2["verify_status_label"] == f"Claude Agent: 1 running · {len(findings) - 1} queued"
+
+
+# --- cleanup when work goes away -------------------------------------------------------------------
+
+def test_deleting_a_scan_or_project_cancels_its_open_jobs(tmp_path):
+    pid, sid, findings = _scan(tmp_path / "a")
+    pid2, sid2, _ = _scan(tmp_path / "b")
+    store.enqueue_scan_verification(pid, sid); store.enqueue_scan_verification(pid2, sid2)
+    store.delete_scan(pid, sid)
+    assert all(j["status"] == "cancelled" for j in store.list_agent_jobs(pid, sid))
+    assert all(j["status"] == "queued" for j in store.list_agent_jobs(pid2, sid2))
+    store.delete_project(pid2)
+    assert all(j["status"] == "cancelled" for j in store.list_agent_jobs(pid2))
+
+
+def test_pruning_old_finished_jobs_keeps_all_time_usage(tmp_path):
+    pid, sid, findings = _scan(tmp_path)
+    old = store.enqueue_agent_job(pid, sid, findings[0]["finding_id"])
+    store.claim_next_agent_job(ME); store.fail_agent_job(old["id"], ME, "x")
+    _patch_job(old["id"], usage={"output_tokens": 500, "cost_usd": 0.1}, finished=_ago(31 * 86400), updated=_ago(31 * 86400))
+    fresh = store.enqueue_agent_job(pid, sid, findings[1]["finding_id"])
+    assert store.prune_agent_jobs() == 1
+    ids = {j["id"] for j in store.list_agent_jobs()}
+    assert old["id"] not in ids and fresh["id"] in ids  # open jobs are never pruned
+    totals = store.agent_status()["usage"]["all"]
+    assert totals["runs"] == 1 and totals["output_tokens"] == 500 and totals["cost_usd"] == 0.1
+
+
+def test_cancelling_a_running_job_stops_its_claude_run(tmp_path, fake_claude, monkeypatch):
+    monkeypatch.setenv("FAKE_CLAUDE_MODE", "hang")
+    monkeypatch.setattr(agent, "CANCEL_CHECK_SECONDS", 0.2)
+    pid, sid, findings = _scan(tmp_path / "repo")
+    job = store.enqueue_agent_job(pid, sid, findings[0]["finding_id"])
+    import threading
+    canceller = threading.Timer(1.0, lambda: store.cancel_agent_jobs(ids=[job["id"]]))
+    canceller.start()
+    t0 = time.monotonic(); lines = []
+    agent.run_worker(fake_claude, once=True, echo=lines.append, poll=0.01)
+    assert time.monotonic() - t0 < 10  # not the 30 s the hanging run would take
+    assert store.get_agent_job(job["id"])["status"] == "cancelled"
+    assert any("cancelled" in m for m in lines)

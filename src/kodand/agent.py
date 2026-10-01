@@ -154,6 +154,10 @@ def run_job(claude: str, cfg: Path, job: dict, agent_id: str, timeout: float = D
         running[job["id"]] = proc
         if stopping is not None and stopping.is_set():
             _kill(proc)  # Ctrl+C landed while this run was starting, before the main thread could see it
+    # cancelled from the console (or its project/scan deleted) while running: stop the run rather than
+    # spend the rest of it on a verdict nobody will record
+    withdrawn, run_over = threading.Event(), threading.Event()
+    threading.Thread(target=_watch_for_cancel, args=(job["id"], agent_id, proc, withdrawn, run_over), daemon=True).start()
     usage = None
     try:
         out, err = proc.communicate(timeout=timeout)
@@ -167,8 +171,11 @@ def run_job(claude: str, cfg: Path, job: dict, agent_id: str, timeout: float = D
         store.release_agent_job(job["id"], agent_id)
         raise
     finally:
+        run_over.set()
         if running is not None:
             running.pop(job["id"], None)
+    if withdrawn.is_set():
+        return store.get_agent_job(job["id"])
     if stopping is not None and stopping.is_set():
         store.release_agent_job(job["id"], agent_id)  # no-op if the main thread already did
         return store.get_agent_job(job["id"])
@@ -178,6 +185,23 @@ def run_job(claude: str, cfg: Path, job: dict, agent_id: str, timeout: float = D
     if usage:
         final = store.set_agent_job_usage(job["id"], usage)
     return final
+
+
+CANCEL_CHECK_SECONDS = 2.0
+
+
+def _watch_for_cancel(jid: str, agent_id: str, proc: subprocess.Popen, withdrawn: threading.Event,
+                      run_over: threading.Event) -> None:
+    while not run_over.wait(CANCEL_CHECK_SECONDS):
+        try:
+            job = store.get_agent_job(jid)
+        except (OSError, FileNotFoundError, ValueError):
+            continue
+        # done/failed mean Claude itself recorded the outcome and is exiting — let it, for the usage report
+        if job["status"] in ("cancelled", "queued") or (job["status"] == "running" and job.get("claimed_by") != agent_id):
+            withdrawn.set()
+            _signal_kill(proc)  # the run's own thread reaps it
+            return
 
 
 def _heartbeat(agent_id: str, started: str, stop: threading.Event, **info) -> None:
@@ -229,7 +253,9 @@ def run_worker(claude: str, timeout: float = DEFAULT_JOB_TIMEOUT, echo=print, on
             took = f"{time.monotonic() - t0:.0f}s"
             if final.get("usage"):
                 took += f", {_short(total_tokens(final['usage']))} tokens"
-            if final["status"] == "done":
+            if final["status"] == "cancelled":
+                tell(f"  – cancelled — {what} ({took})")
+            elif final["status"] == "done":
                 tell(f"  ✓ {store.AGENT_VERDICTS.get(final.get('verdict'), final.get('verdict'))} — {what} ({took})")
             else:
                 tell(f"  ✗ {final['status']} — {what}: {final.get('error', '')} ({took})")
