@@ -317,10 +317,15 @@ def get_review(pid: str, sid: str) -> dict:
 def set_finding_status(pid: str, sid: str, finding_id: str, status: str) -> dict:
     if status not in REVIEW_STATUSES:
         raise ValueError(f"Invalid status '{status}'. Expected one of: {', '.join(sorted(REVIEW_STATUSES))}")
-    find_finding(pid, sid, finding_id)  # raises FileNotFoundError if unknown
+    finding = find_finding(pid, sid, finding_id)  # raises FileNotFoundError if unknown
     overrides = _load_overrides(pid, sid)
     entry = overrides.setdefault(finding_id, {}); entry["status"] = status
     _save_overrides(pid, sid, overrides)
+    # "Suppressed" is a promise about future scans too: keep the project's suppressions in step
+    if status == "suppressed":
+        _ensure_status_suppression(pid, sid, finding)
+    else:
+        _drop_status_suppression(pid, finding_id)
     return {"finding_id": finding_id, "status": status, "comments": entry.get("comments", [])}
 # A comment's verdict drives the badge on it in the report. Claude Agent passes its structured verdict;
 # for anything else (AI Review, chat, a typed comment) it's read from how the text opens —
@@ -414,6 +419,51 @@ def _save_project_suppressions(pid: str, entries: list) -> None:
     _suppressions_path(pid).write_text(yaml.safe_dump({"suppressions": entries}, sort_keys=False, allow_unicode=True))
 
 
+_STATUS_REASON = "Marked Suppressed in review"
+
+
+def _covered(finding: dict, entries: list) -> bool:
+    from kodand.models.analysis import CorrelatedFinding
+    from kodand.suppress import Suppression
+    f = CorrelatedFinding.model_validate(finding)
+    return any(Suppression(e).active() and Suppression(e).matches(f) for e in entries)
+
+
+def _ensure_status_suppression(pid: str, sid: str, finding: dict) -> None:
+    """A finding set to Suppressed gets a finding-id suppression for the project — unless an existing
+    entry (a rule or path the user chose with "Suppress…") already covers it."""
+    entries = load_project_suppressions(pid)
+    if _covered(finding, entries):
+        return
+    _save_project_suppressions(pid, entries + [{
+        "finding_id": finding["finding_id"], "reason": _STATUS_REASON, "origin": "status",
+        "title": finding.get("title", ""), "scan_id": sid, "created": _now()}])
+
+
+def _drop_status_suppression(pid: str, finding_id: str) -> None:
+    """Setting the status back to anything else lifts the suppression that Suppressed created (never
+    one the user wrote with a rule or path)."""
+    entries = load_project_suppressions(pid)
+    kept = [e for e in entries if not (e.get("origin") == "status" and e.get("finding_id") == finding_id)]
+    if len(kept) != len(entries):
+        _save_project_suppressions(pid, kept)
+
+
+def sync_status_suppressions(pid: str) -> list:
+    """Make sure every finding marked Suppressed in this project's scans is in its suppressions — covers
+    findings suppressed before the status and the list were linked. Returns the entries."""
+    for meta in list_scans(pid):
+        sid = meta.get("id")
+        try:
+            review, findings = get_review(pid, sid), {f["finding_id"]: f for f in _analysis(pid, sid).get("findings", [])}
+        except FileNotFoundError:
+            continue
+        for fid, r in review.items():
+            if r["status"] == "suppressed" and fid in findings:
+                _ensure_status_suppression(pid, sid, findings[fid])
+    return load_project_suppressions(pid)
+
+
 def add_project_suppression(pid: str, entry: dict) -> dict:
     from datetime import date
     e = {k: str(entry[k]).strip() for k in _SUPPRESSION_FIELDS if entry.get(k) not in (None, "")}
@@ -435,10 +485,26 @@ def add_project_suppression(pid: str, entry: dict) -> dict:
 
 
 def delete_project_suppression(pid: str, index: int) -> dict:
+    """Remove an entry, and un-suppress the findings it was hiding in this project's scans (unless another
+    entry still covers them): deleting a suppression means "report this again"."""
+    from kodand.models.analysis import CorrelatedFinding
+    from kodand.suppress import Suppression
     entries = load_project_suppressions(pid)
     if not 0 <= index < len(entries): raise FileNotFoundError("suppression not found")
     removed = entries.pop(index)
     _save_project_suppressions(pid, entries)
+    rule = Suppression(removed)
+    for meta in list_scans(pid):
+        sid = meta.get("id")
+        try:
+            review = get_review(pid, sid)
+            findings = _analysis(pid, sid).get("findings", [])
+        except FileNotFoundError:
+            continue
+        for f in findings:
+            if review.get(f["finding_id"], {}).get("status") == "suppressed" \
+                    and rule.matches(CorrelatedFinding.model_validate(f)) and not _covered(f, entries):
+                set_finding_status(pid, sid, f["finding_id"], "needs-review")
     return removed
 
 

@@ -133,7 +133,7 @@ def scan(path: str, project: str | None = None, label: str | None = None, use_cu
             # process from this MCP stdio server — can watch this scan's progress in real time
             on_progress=lambda stage, detail: store.write_scan_progress(pid, sid, stage, detail),
             workers=min(max(1, int(workers)), os.cpu_count() or 1), use_cache=bool(use_cache),
-            extra_suppressions=store.load_project_suppressions(pid))
+            extra_suppressions=store.sync_status_suppressions(pid))
     except Exception as e:
         store.finish_scan_progress(pid, sid, "error", {"message": str(e)})
         # keep progress.json/activity_log.json around (delete_scan would wipe them too) so the

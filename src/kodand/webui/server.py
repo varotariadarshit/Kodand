@@ -308,7 +308,7 @@ def api_set_project_mcp_sharing(pid: str, payload: dict = Body(...)):
 @app.get("/api/projects/{pid}/suppressions")
 def api_project_suppressions(pid: str):
     try:
-        return {"suppressions": store.load_project_suppressions(pid), "yaml": store.project_suppressions_yaml(pid)}
+        return {"suppressions": store.sync_status_suppressions(pid), "yaml": store.project_suppressions_yaml(pid)}
     except FileNotFoundError:
         raise HTTPException(404, "Project not found")
 
@@ -442,7 +442,7 @@ async def api_create_scan(pid: str, request: Request):
             run_template_scan, repo_path=scan_root, use_custom=bool(use_custom),
             custom_dir=store.custom_templates_dir(), out_dir=sd, formats=("html", "json", "sarif"),
             on_progress=lambda stage, detail: store.write_scan_progress(pid, sid, stage, detail),
-            workers=workers, extra_suppressions=store.load_project_suppressions(pid))
+            workers=workers, extra_suppressions=store.sync_status_suppressions(pid))
     except Exception as e:
         store.finish_scan_progress(pid, sid, "error", {"message": str(e)})
         # keep progress.json/activity_log.json (delete_scan would wipe them too) so the failure

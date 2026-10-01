@@ -107,3 +107,45 @@ def test_web_endpoints(scanned):
 def test_report_offers_suppress_on_false_positive_verdicts():
     from kodand.reporting import _JS
     assert "rv-c-suppress" in _JS and "openSuppress" in _JS and "commentVerdict(c)==='false_positive'" in _JS
+
+
+def test_setting_status_suppressed_adds_it_to_the_project_and_the_next_scan_skips_it(scanned):
+    pid, sid, findings, tmp_path = scanned
+    fid = findings[0]["finding_id"]
+    store.set_finding_status(pid, sid, fid, "suppressed")
+    [entry] = store.load_project_suppressions(pid)
+    assert entry["finding_id"] == fid and entry["origin"] == "status" and entry["title"] == findings[0]["title"]
+    store.set_finding_status(pid, sid, fid, "suppressed")  # again: no duplicate
+    assert len(store.load_project_suppressions(pid)) == 1
+    again = mcpserver.scan(path=str(tmp_path / "repo"), project=pid)
+    assert fid not in {f["finding_id"] for f in store._analysis(pid, again["scan_id"])["findings"]}
+    assert again["suppressed"] == 1
+    # setting it back lifts the suppression
+    store.set_finding_status(pid, sid, fid, "confirmed")
+    assert store.load_project_suppressions(pid) == []
+
+
+def test_status_suppressed_inside_a_rule_suppression_adds_no_duplicate(scanned):
+    pid, sid, findings, _ = scanned
+    store.add_project_suppression(pid, {"rule": findings[0]["rule_id"], "reason": "noise"})
+    store.set_finding_status(pid, sid, findings[0]["finding_id"], "suppressed")
+    assert [e.get("rule") for e in store.load_project_suppressions(pid)] == [findings[0]["rule_id"]]
+    store.set_finding_status(pid, sid, findings[0]["finding_id"], "needs-review")
+    assert len(store.load_project_suppressions(pid)) == 1  # a rule the user wrote is never lifted by a status
+
+
+def test_findings_suppressed_before_the_link_are_picked_up(scanned):
+    pid, sid, findings, _ = scanned
+    fid = findings[1]["finding_id"]
+    overrides = store._load_overrides(pid, sid); overrides[fid] = {"status": "suppressed"}; store._save_overrides(pid, sid, overrides)
+    assert store.load_project_suppressions(pid) == []  # an old-style status-only suppression
+    assert [e["finding_id"] for e in store.sync_status_suppressions(pid)] == [fid]
+
+
+def test_deleting_a_suppression_reports_its_findings_again(scanned):
+    pid, sid, findings, _ = scanned
+    fid = findings[0]["finding_id"]
+    store.set_finding_status(pid, sid, fid, "suppressed")
+    store.delete_project_suppression(pid, 0)
+    assert store.get_review(pid, sid)[fid]["status"] == "needs-review"
+    assert store.sync_status_suppressions(pid) == []  # and it doesn't come back on the next sync

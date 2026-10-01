@@ -213,7 +213,7 @@ thead th{background:var(--surface-2);text-transform:uppercase;font-size:.7rem;le
       <a data-tab="activity"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 12h4l2.5 7L13 5l2.5 7H21"/></svg>Live Scans</a>
       <a data-tab="templates"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 4h16v4H4z"/><path d="M4 12h16v8H4z"/><path d="M8 16h4"/></svg>Custom templates</a>
       <a data-tab="bench"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 20V10M12 20V4M20 20v-7"/></svg>Benchmark</a>
-      <a data-tab="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="8.5"/><path d="M9 12l2 2 4-4.5"/></svg>AI assistant</a>
+      <a data-tab="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="8.5"/><path d="M9 12l2 2 4-4.5"/></svg>Settings</a>
       <a data-tab="about"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="8.5"/><path d="M12 11v5.5M12 8v.01"/></svg>About</a>
     </nav>
 
@@ -238,15 +238,6 @@ thead th{background:var(--surface-2);text-transform:uppercase;font-size:.7rem;le
         </div>
         <div id="proj-list"></div>
 
-        <div class="panel" id="storage-panel" style="margin-top:22px">
-          <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap">
-            <h2 style="margin:0">Job files storage</h2>
-            <div><span id="storage-now" class="small muted"></span> <a href="#tab=settings" class="small" onclick="setTimeout(()=>document.getElementById('jobfiles-panel').scrollIntoView(),300)">Manage →</a></div>
-          </div>
-          <div class="small muted" style="margin:4px 0 10px">Scanned source files Kodand keeps so findings can be reviewed in place.</div>
-          <div id="storage-chart" style="position:relative"></div>
-          <details style="margin-top:8px"><summary class="small muted" style="cursor:pointer">View as table</summary><div id="storage-table"></div></details>
-        </div>
       </div>
       <div id="view-project" class="hide">
         <div class="topbar">
@@ -504,6 +495,9 @@ thead th{background:var(--surface-2);text-transform:uppercase;font-size:.7rem;le
           <button class="ghostbtn" onclick="cleanupNow()">Clean up now</button>
           <span id="jf-total" class="small muted" style="margin-left:auto"></span>
         </div>
+        <label class="flabel">Storage over time <span id="storage-now" style="text-transform:none;letter-spacing:0;margin-left:6px"></span></label>
+        <div id="storage-chart" style="position:relative;margin-bottom:6px"></div>
+        <details style="margin-bottom:18px"><summary class="small muted" style="cursor:pointer">View as table</summary><div id="storage-table"></div></details>
         <div id="jf-list" class="small muted">–</div>
       </div>
     </div>
@@ -584,7 +578,7 @@ function activateTab(name){
   TABS.forEach(n=>document.getElementById('tab-'+n).classList.toggle('hide',n!==name));
   if(name==='projects')showProjects();
   if(name==='templates')loadTemplates();
-  if(name==='settings'){loadAiSettings();loadMcpSettings();loadAgentPanel();loadJobFiles();}
+  if(name==='settings'){loadAiSettings();loadMcpSettings();loadAgentPanel();loadJobFiles();loadStorageChart();}
   clearInterval(window.AGENT_PANEL_TIMER);
   if(name==='settings')window.AGENT_PANEL_TIMER=setInterval(loadAgentPanel,10000);
   if(name==='activity'){closeActivityDetail();}
@@ -915,9 +909,9 @@ async function loadSuppressions(){
   try{
     const d=await api('/api/projects/'+CUR.id+'/suppressions');SUPPRESSIONS_YAML=d.yaml;
     document.getElementById('sup-copy').classList.toggle('hide',!d.suppressions.length);
-    if(!d.suppressions.length){el.innerHTML='<div class="panel empty">None. Use “Suppress…” on a False-positive verdict in a report to stop a finding coming back in future scans of this project.</div>';return;}
+    if(!d.suppressions.length){el.innerHTML='<div class="panel empty">None. Set a finding’s status to Suppressed in a report, or use “Suppress…” on a False-positive verdict, and it won’t be reported in future scans of this project.</div>';return;}
     el.innerHTML=d.suppressions.map((s,i)=>{
-      const what=[s.rule&&`rule ${s.rule}`,s.path&&`in ${s.path}`,s.finding_id&&`finding ${s.finding_id}`,s.category&&`category ${s.category}`].filter(Boolean).join(' ');
+      const what=s.finding_id&&!s.rule&&!s.path?`${s.title||'Finding'} (${s.finding_id})`:[s.rule&&`rule ${s.rule}`,s.path&&`in ${s.path}`,s.finding_id&&`finding ${s.finding_id}`,s.category&&`category ${s.category}`].filter(Boolean).join(' ');
       return `<div class="entry two"><div><div class="name">${escHtml(what)}</div>
         <div class="hash">${escHtml(s.reason||'')}${s.expires?' · expires '+escHtml(s.expires):''}${s.created?' · added '+escHtml(s.created):''}</div></div>
         <div class="acts"><button class="danger" onclick="deleteSuppression(${i})">Delete</button></div></div>`;
@@ -925,7 +919,7 @@ async function loadSuppressions(){
   }catch(e){el.innerHTML='';}
 }
 async function deleteSuppression(i){
-  if(!await appConfirm('Delete this suppression? Future scans of this project will report the finding again.'))return;
+  if(!await appConfirm('Delete this suppression? The findings it hides go back to Pending Review, and future scans of this project report them again.'))return;
   try{await api('/api/projects/'+CUR.id+'/suppressions/'+i,{method:'DELETE'});toast('Suppression deleted');loadSuppressions();}catch(e){toast(e.message,false);}
 }
 async function copySuppressions(){
@@ -1002,7 +996,7 @@ async function setKeep(pid,sid,keep){
 }
 async function deleteJobFiles(pid,sid){
   if(!await appConfirm('Delete this scan’s job files? Findings, the report, comments and verdicts stay; the Files viewer and Claude Agent can no longer read the source.'))return;
-  try{await api(`/api/projects/${encodeURIComponent(pid)}/scans/${encodeURIComponent(sid)}/target`,{method:'DELETE'});toast('Job files deleted');JF_OPEN.delete(pid+'/'+sid);loadJobFiles();}
+  try{await api(`/api/projects/${encodeURIComponent(pid)}/scans/${encodeURIComponent(sid)}/target`,{method:'DELETE'});toast('Job files deleted');JF_OPEN.delete(pid+'/'+sid);loadJobFiles();setTimeout(loadStorageChart,1500);}
   catch(e){toast(e.message,false);}
 }
 async function saveRetention(){
@@ -1013,7 +1007,7 @@ async function saveRetention(){
 }
 async function cleanupNow(){
   try{const r=await api('/api/storage/cleanup',{method:'POST'});const n=r.deleted.length,freed=r.deleted.reduce((a,x)=>a+x.bytes,0);
-    toast(n?`Deleted job files of ${n} scan${n===1?'':'s'} — ${fmtBytes(freed)} freed`:'Nothing past the retention period');loadJobFiles();}
+    toast(n?`Deleted job files of ${n} scan${n===1?'':'s'} — ${fmtBytes(freed)} freed`:'Nothing past the retention period');loadJobFiles();loadStorageChart();}
   catch(e){toast(e.message,false);}
 }
 
@@ -1056,7 +1050,6 @@ async function loadStorageChart(){
   hit.addEventListener('mouseleave',()=>{g.style.display='none';tip.style.display='none';});
 }
 async function loadProjects(){
-  loadStorageChart();
   const ps=await api('/api/projects');const el=document.getElementById('proj-list');
   if(!ps.length){el.innerHTML='<div class="panel empty">No projects yet. Create one above to get started.</div>';return;}
   PROJECTS=Object.fromEntries(ps.map(p=>[p.id,p]));

@@ -170,8 +170,8 @@ Runs the scanner against a labeled corpus and reports precision/recall/F1 per
 category (same as `kodand bench`). Leave the corpus path blank to use the
 packaged one.
 
-### AI assistant (settings)
-Configure the provider used by the **AI Review** button on findings:
+### Settings
+**AI assistant settings** configure the provider used by the **AI Review** button on findings:
 ChatGPT (OpenAI), Claude (Anthropic), Gemini (Google), or a **Custom** OpenAI-
 compatible endpoint (this is how you'd point Kodand at OpenRouter, a local
 vLLM/Ollama server, etc.). Includes a **Test connection** check. API keys are
@@ -186,6 +186,11 @@ This is also where **MCP Server** setup lives:
   **Register** next to a detected client (currently: Claude Code) to run
   `claude mcp add` for you automatically.
 
+It also holds **Claude Agent** (worker status and Claude usage) and **Job files**
+(retention, Keep tags, per-scan sizes and the storage graph) — see
+[Claude Agent](#claude-agent--verifying-from-the-web-console) and
+[§10](#10-workspace--data-storage).
+
 ### About
 Version, workspace path, and the full AST01–AST10 category legend.
 
@@ -196,7 +201,7 @@ Every finding in a report can be:
   Positive, Remediated, or Suppressed.
 - **Commented on** (and comments edited/deleted) to record human analysis.
 - Sent for **AI Review** — a one-click call to whichever provider is
-  configured in AI assistant settings. It sends the finding with the *full
+  configured in Settings → AI assistant settings. It sends the finding with the *full
   content* of the affected file(s), not just the matched excerpt, so most
   findings are answered in a single request. When that isn't enough (say the
   risk depends on another file in the skill), the model can open the scan's
@@ -226,8 +231,8 @@ findings, verify them — without touching the web console.
 ### One-time setup
 1. Install with MCP support: `pipx install "kodand[all]"` (or at
    least the `mcp` extra).
-2. Register the server with your client. Easiest: web console → **AI
-   assistant** tab → MCP Server section → click **Register** next to your
+2. Register the server with your client. Easiest: web console → **Settings**
+   → MCP Server section → click **Register** next to your
    detected client. Or manually:
    ```bash
    claude mcp add kodand -- kodand mcp
@@ -402,7 +407,10 @@ the rule under this folder, or the rule anywhere in the project — with a reaso
 and optional expiry. It's kept in Kodand's workspace (never written into your
 source), applies to every later scan of the project alongside the repo's own
 `.kodand.yml`, and marks the matching findings of the current scan Suppressed at
-once. The project page lists them, with delete and **Copy as .kodand.yml**.
+once. Setting a finding's status to **Suppressed** in a report does the same for
+that one finding (setting it back lifts it). The project page lists them all, with
+delete and **Copy as .kodand.yml**; deleting one puts the findings it hid back to
+Pending Review, and later scans report them again.
 
 ## 9. Report formats
 
@@ -429,7 +437,7 @@ lists them per scan (size, file count; click a row for its files), with a
 N days are deleted at the hourly cleanup (or **Clean up now**) — never findings,
 reports, comments or verdicts, never scans tagged Keep, and not while Claude
 Agent still has jobs queued for the scan. Retention is off until you set it. The
-Projects page graphs total job-file storage over time.
+same panel graphs total job-file storage over time.
 
 The workspace directory is created owner-only (`700`), and Kodand tightens it
 back to that if it finds it readable by others: it holds the password hash,
