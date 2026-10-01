@@ -651,8 +651,24 @@ def api_agent_status():
 
 
 @app.get("/api/agent/jobs")
-def api_agent_jobs(project: str | None = None, scan: str | None = None, limit: int = 200):
-    return store.list_agent_jobs(project, scan, limit=min(max(1, limit), 1000))
+def api_agent_jobs(project: str | None = None, scan: str | None = None, limit: int = 200, open: bool = False):
+    """`open=true`: only queued/running jobs, oldest first (the queue order), with project and scan
+    names for display."""
+    jobs = store.list_agent_jobs(project, scan, limit=100_000 if open else min(max(1, limit), 1000))
+    if not open:
+        return jobs
+    names = {p["id"]: p["name"] for p in store.list_projects()}
+    labels: dict = {}
+    out = []
+    for j in reversed([j for j in jobs if j["status"] in store.AGENT_OPEN_STATES]):
+        key = (j["project_id"], j["scan_id"])
+        if key not in labels:
+            try:
+                labels[key] = next((s.get("label") for s in store.list_scans(j["project_id"]) if s["id"] == j["scan_id"]), None)
+            except FileNotFoundError:
+                labels[key] = None
+        out.append({**j, "project_name": names.get(j["project_id"]), "scan_label": labels[key]})
+    return out[:min(max(1, limit), 1000)]
 
 
 @app.post("/api/agent/jobs/cancel")

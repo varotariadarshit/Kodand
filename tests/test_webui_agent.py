@@ -154,3 +154,15 @@ def test_turning_sharing_off_cancels_queued_jobs(tmp_path):
 
 def test_meta_reports_cpu_count_for_the_workers_choice():
     assert client.get("/api/meta").json()["cpu_count"] >= 1
+
+
+def test_queue_view_lists_open_jobs_oldest_first_with_names(tmp_path):
+    client.post("/api/agent/jobs/cancel", json={"all": True})
+    pid = _project()
+    scan = _scan(pid, tmp_path, agent_verify="true", label="Queue demo").json()
+    jobs = client.get("/api/agent/jobs", params={"open": "true"}).json()
+    assert len(jobs) == scan["agent_jobs_queued"]
+    assert [j["seq"] for j in jobs] == sorted(j["seq"] for j in jobs)  # queue order
+    assert jobs[0]["project_name"] == "Agent" and jobs[0]["scan_label"] == "Queue demo"
+    client.post("/api/agent/jobs/cancel", json={"ids": [jobs[0]["id"]]})
+    assert len(client.get("/api/agent/jobs", params={"open": "true"}).json()) == len(jobs) - 1

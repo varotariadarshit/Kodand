@@ -322,6 +322,16 @@ thead th{background:var(--surface-2);text-transform:uppercase;font-size:.7rem;le
       <div id="view-activity-list">
         <div class="section-head"><h2><span class="livedot" style="margin-right:8px"></span>Scans in progress</h2><button class="refresh" onclick="loadActiveScans()">↻ Refresh</button></div>
         <div id="activity-list"></div>
+
+        <div class="section-head" style="margin-top:28px">
+          <h2>Claude Agent queue</h2>
+          <div style="display:flex;gap:8px;align-items:center">
+            <span id="q-status" class="small muted"></span>
+            <button class="refresh" id="q-remove" onclick="removeQueued(false)" disabled>Remove selected</button>
+            <button class="refresh" id="q-clear" onclick="removeQueued(true)">Clear queue</button>
+          </div>
+        </div>
+        <div id="agent-queue"></div>
       </div>
       <div id="view-activity-detail" class="hide">
         <div class="topbar">
@@ -658,7 +668,7 @@ function closeActivityDetail(){
   clearInterval(ACT_POLL);ACT_POLL=null;ACT_CUR=null;
   document.getElementById('view-activity-detail').classList.add('hide');
   document.getElementById('view-activity-list').classList.remove('hide');
-  loadActiveScans();
+  loadActiveScans();loadAgentQueue();
 }
 // two independent badges: scan pipeline status, and AI-verification status (only meaningful
 // once verification has actually started) — kept separate since a plain scan run that nobody
@@ -798,8 +808,45 @@ function showBlockDetail(stageKey){
 // keeps the active-scans list itself fresh while that tab is open and no scan is drilled into
 setInterval(()=>{
   const tab=document.getElementById('tab-activity'), list=document.getElementById('view-activity-list');
-  if(tab && !tab.classList.contains('hide') && list && !list.classList.contains('hide')) loadActiveScans();
+  if(tab && !tab.classList.contains('hide') && list && !list.classList.contains('hide')){loadActiveScans();loadAgentQueue();}
 },4000);
+
+// Claude Agent queue: findings waiting for, or being verified by, the `kodand agent` worker.
+// Removing one cancels it; the worker stops a run in progress within seconds.
+const QUEUE_SELECTED=new Set();
+function ago(ts){const s=Math.max(0,(Date.now()-new Date(ts).getTime())/1000);return s<60?'just now':s<3600?Math.floor(s/60)+' min ago':s<86400?Math.floor(s/3600)+' h ago':Math.floor(s/86400)+' d ago';}
+async function loadAgentQueue(){
+  const el=document.getElementById('agent-queue');
+  let jobs,status;
+  try{[jobs,status]=await Promise.all([api('/api/agent/jobs?open=true&limit=1000'),api('/api/agent/status')]);}catch(e){return;}
+  const l=agentStateLine(status),st=document.getElementById('q-status');st.textContent=status.state==='offline'?'Worker not running':l.text.split(' · ')[0].replace(/^[●○⚠] /,'Worker ');st.style.color=l.color;
+  const ids=new Set(jobs.map(j=>j.id));[...QUEUE_SELECTED].forEach(id=>{if(!ids.has(id))QUEUE_SELECTED.delete(id);});
+  document.getElementById('q-clear').disabled=!jobs.length;
+  document.getElementById('q-remove').disabled=!QUEUE_SELECTED.size;
+  document.getElementById('q-remove').textContent=QUEUE_SELECTED.size?`Remove selected (${QUEUE_SELECTED.size})`:'Remove selected';
+  if(!jobs.length){el.innerHTML='<div class="panel empty">// queue is empty — send findings from a report or a scan with “Verify with Claude Agent”.</div>';return;}
+  const all=jobs.every(j=>QUEUE_SELECTED.has(j.id));
+  el.innerHTML=`<table><thead><tr><th style="width:34px"><input type="checkbox" ${all?'checked':''} onchange="queueSelectAll(this.checked)" title="Select all"></th><th>Status</th><th>Finding</th><th>Project / scan</th><th>Queued</th><th></th></tr></thead><tbody>${jobs.map(j=>`<tr>
+    <td><input type="checkbox" ${QUEUE_SELECTED.has(j.id)?'checked':''} onchange="queueSelect('${j.id}',this.checked)"></td>
+    <td>${j.status==='running'?'<span style="color:var(--green)">● Verifying</span>':'Queued'}</td>
+    <td>${sevBadge(j.severity||'informational')} ${escHtml(j.title||j.finding_id)}</td>
+    <td>${escHtml(j.project_name||j.project_id)}<div class="small muted">${escHtml(j.scan_label||j.scan_id)}</div></td>
+    <td class="small muted" title="${escHtml(j.created)}">${ago(j.created)}${j.origin==='auto'?' · auto':''}</td>
+    <td><button class="hx-x" title="Remove from the queue" onclick="removeQueuedOne('${j.id}')">✕</button></td></tr>`).join('')}</tbody></table>`;
+}
+function queueSelect(id,on){on?QUEUE_SELECTED.add(id):QUEUE_SELECTED.delete(id);loadAgentQueue();}
+async function queueSelectAll(on){const jobs=await api('/api/agent/jobs?open=true&limit=1000');jobs.forEach(j=>on?QUEUE_SELECTED.add(j.id):QUEUE_SELECTED.delete(j.id));loadAgentQueue();}
+async function cancelJobs(body,msg){
+  try{const r=await api('/api/agent/jobs/cancel',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    toast(`${r.cancelled} ${msg}`);QUEUE_SELECTED.clear();loadAgentQueue();}catch(e){toast(e.message,false);}
+}
+async function removeQueued(clearAll){
+  if(clearAll){if(!await appConfirm('Clear the whole Claude Agent queue? Findings being verified right now are stopped too.','Clear queue'))return;return cancelJobs({all:true},'removed from the queue');}
+  if(!QUEUE_SELECTED.size)return;
+  if(!await appConfirm(`Remove ${QUEUE_SELECTED.size} finding${QUEUE_SELECTED.size===1?'':'s'} from the Claude Agent queue?`,'Remove'))return;
+  cancelJobs({ids:[...QUEUE_SELECTED]},'removed from the queue');
+}
+function removeQueuedOne(id){cancelJobs({ids:[id]},'removed from the queue');}
 
 async function loadMeta(){
   META=await api('/api/meta');
