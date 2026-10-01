@@ -120,7 +120,7 @@ tbody tr:hover{background:rgba(255,255,255,.03)}td ul{margin:0;padding-left:18px
 .review-panel button.rv-comment-btn{background:transparent;color:var(--txt);border-color:rgba(255,255,255,.14)}
 .review-panel button.sm{padding:4px 10px;font-size:.72rem;border-radius:6px}
 .review-panel button.rv-c-del{background:transparent;color:#fda4af;border-color:#f4547066}
-.review-panel button.rv-c-edit{background:transparent;color:var(--txt);border-color:rgba(255,255,255,.14)}
+.review-panel button.rv-c-edit,.review-panel button.rv-c-apply,.review-panel button.rv-c-suppress{background:transparent;color:var(--txt);border-color:rgba(255,255,255,.14)}
 .review-panel .rv-ai-icon{width:14px;height:14px;vertical-align:-2px;margin-right:6px}
 .review-panel .rv-comments{margin-top:10px}
 .review-panel .cm.ai{border-color:#a78bfa66}
@@ -242,6 +242,7 @@ document.addEventListener('DOMContentLoaded',()=>{
         <div class="row" style="justify-content:space-between;flex-wrap:nowrap">
           <div><b>${esc(c.author)}</b>${verdictBadge(c)}</div>
           <div class="row" style="gap:6px">
+            ${commentVerdict(c)==='false_positive'?`<button type="button" class="sm rv-c-suppress" title="Stop this from being reported in future scans of this project">Suppress…</button>`:''}
             ${commentVerdict(c)?`<button type="button" class="sm rv-c-apply" data-verdict="${commentVerdict(c)}" title="Set this finding's review status from this verdict">Mark as ${VERDICT[commentVerdict(c)].label}</button>`:''}
             <button type="button" class="sm rv-c-edit">Edit</button>
             <button type="button" class="sm rv-c-del">Delete</button>
@@ -250,6 +251,7 @@ document.addEventListener('DOMContentLoaded',()=>{
         <div class="rv-c-text">${esc(c.text)}</div>
         <div class="hash rv-c-time">${esc(c.created)}${c.edited?' (edited)':''}</div>
       </div>`).join(''):'<div class="hash">No comments yet.</div>';
+    el.querySelectorAll('.rv-c-suppress').forEach(btn=>btn.addEventListener('click', ()=>openSuppress(panel, comments.find(c=>c.id===btn.closest('.cm').dataset.cid))));
     el.querySelectorAll('.rv-c-apply').forEach(btn=>btn.addEventListener('click', ()=>panel._setStatus&&panel._setStatus(VERDICT_STATUS[btn.dataset.verdict])));
     el.querySelectorAll('.rv-c-edit').forEach(btn=>btn.addEventListener('click', ()=>startEditComment(panel, btn.closest('.cm'))));
     el.querySelectorAll('.rv-c-del').forEach(btn=>btn.addEventListener('click', ()=>deleteComment(panel, btn.closest('.cm').dataset.cid)));
@@ -314,6 +316,7 @@ document.addEventListener('DOMContentLoaded',()=>{
       catch(err){apply(prev);appAlert(err.message);}
     };
     panel._setStatus=setStatus;  // also used by a verdict's "Mark as …" button
+    panel._showStatus=v=>{apply(v);setPill(panel.dataset.fid,v);};  // the server already changed it
     opts.forEach(o=>o.addEventListener('click',()=>{closeOpenDropdown();setStatus(o.dataset.value);}));
   }
   document.addEventListener('click',closeOpenDropdown);
@@ -346,6 +349,46 @@ document.addEventListener('DOMContentLoaded',()=>{
     if(!agentWatch.size){clearInterval(agentTimer);agentTimer=null;}
   }
   function watchAgentJob(fid,panel){agentWatch.set(fid,panel); if(!agentTimer)agentTimer=setInterval(pollAgentJobs,3000);}
+
+  // Suppress from a False-positive verdict: saved to the project (applied to every future scan of
+  // it, never written into the scanned source), and the matching findings of this scan are marked
+  // Suppressed right away.
+  function openSuppress(panel, comment){
+    const card=panel.closest('.finding'), fid=card.id, rule=card.dataset.rule;
+    let files=[]; try{files=JSON.parse(card.dataset.files||'[]');}catch(e){}
+    const file=files[0]||'', dir=file.includes('/')?file.slice(0,file.lastIndexOf('/')):'';
+    const scopes=[['finding','This finding only',{finding_id:fid}]];
+    if(file)scopes.push(['file',`${rule} in ${file}`,{rule,path:file}]);
+    if(dir)scopes.push(['dir',`${rule} anywhere under ${dir}/`,{rule,path:dir+'/**'}]);
+    scopes.push(['rule',`${rule} anywhere in this project`,{rule}]);
+    const body=(comment.text||'').replace(/^[^\\n]*verdict[^\\n]*\\n+/i,'').trim();
+    let reason=(body.match(/^[^\\n]*?[.!?](\\s|$)/)||[body.split('\\n')[0]])[0].trim();
+    if(reason.length>200)reason=reason.slice(0,200).replace(/\\s+\\S*$/,'')+'…';  // cut at a word
+    const ov=document.getElementById('app-modal'), box=document.getElementById('app-modal-msg'), actions=document.getElementById('app-modal-actions');
+    box.innerHTML=`<div style="font-weight:700;margin-bottom:10px">Suppress in future scans of this project</div>
+      ${scopes.map(([k,label],i)=>`<label style="display:flex;gap:8px;align-items:center;margin:6px 0;font-size:.86rem;cursor:pointer"><input type="radio" name="sup-scope" value="${k}"${i===0?' checked':''}> ${esc(label)}</label>`).join('')}
+      <div style="margin-top:12px;font-size:.78rem;color:var(--muted)">Reason (kept for audit)</div>
+      <textarea id="sup-reason" style="width:100%;min-height:64px;margin-top:4px;background:rgba(0,0,0,.28);border:1px solid rgba(255,255,255,.14);border-radius:8px;color:var(--txt);padding:8px;font:inherit">${esc(reason)}</textarea>
+      <div style="margin-top:10px;font-size:.78rem;color:var(--muted)">Expires (optional) <input id="sup-expires" type="date" style="margin-left:6px;background:rgba(0,0,0,.28);border:1px solid rgba(255,255,255,.14);border-radius:6px;color:var(--txt);padding:3px 6px"></div>`;
+    actions.innerHTML='';
+    const close=()=>{ov.classList.add('hide');box.textContent='';};
+    const cancel=document.createElement('button'); cancel.type='button'; cancel.textContent='Cancel';
+    cancel.style.background='transparent'; cancel.style.color='var(--txt)'; cancel.style.borderColor='rgba(255,255,255,.14)'; cancel.onclick=close;
+    const ok=document.createElement('button'); ok.type='button'; ok.textContent='Suppress';
+    ok.onclick=async ()=>{
+      const k=box.querySelector('input[name=sup-scope]:checked').value, scope=scopes.find(s=>s[0]===k)[2];
+      const payload={...scope, reason:box.querySelector('#sup-reason').value.trim(), expires:box.querySelector('#sup-expires').value||undefined, scan_id:m[2]};
+      try{
+        const r=await api(`/api/projects/${encodeURIComponent(pid)}/suppressions`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+        close();
+        r.suppressed_in_scan.forEach(id=>{const p=document.querySelector(`#${CSS.escape(id)} .review-panel`); if(p&&p._showStatus)p._showStatus('suppressed');});
+        await recomputeSummary();
+        const n=r.suppressed_in_scan.length;
+        appAlert(`Suppressed ${n} finding${n===1?'':'s'} in this scan. Future scans of this project will suppress matching findings too (project page → Suppressions).`);
+      }catch(err){appAlert(err.message);}
+    };
+    actions.append(cancel,ok); ov.classList.remove('hide');
+  }
 
   let LAST_REVIEW={};
   // Verdict filter: each finding's latest verdict (the newest comment that states one), with counts.
@@ -570,7 +613,7 @@ def write_html(a, p):
         prox = "".join(f'<span class="tag" style="background:#f43f5e22;color:#fda4af">⚡ {html.escape(x)}</span>' for x in f.proximity_signals)
         rel_sig = "".join(f'<span class="tag" style="background:#facc1522;color:#facc15">🔗 {html.escape(x)}</span>' for x in getattr(f, "relationship_signals", []))
         return f"""
-<div class="glass finding" id="{html.escape(f.finding_id)}" data-severity="{html.escape(f.severity)}" data-category="{html.escape(f.category)}" style="--sev:{sev_col}">
+<div class="glass finding" id="{html.escape(f.finding_id)}" data-severity="{html.escape(f.severity)}" data-category="{html.escape(f.category)}" data-rule="{html.escape(f.rule_id)}" data-files="{html.escape(json.dumps(f.affected_files))}" style="--sev:{sev_col}">
   <div class="fhead">
     <div>
       <div class="ftitle">{html.escape(f.title)} {prox}{rel_sig}</div>

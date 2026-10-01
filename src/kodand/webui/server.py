@@ -270,6 +270,37 @@ def api_set_project_mcp_sharing(pid: str, payload: dict = Body(...)):
         raise HTTPException(404, "Project not found")
 
 
+@app.get("/api/projects/{pid}/suppressions")
+def api_project_suppressions(pid: str):
+    try:
+        return {"suppressions": store.load_project_suppressions(pid), "yaml": store.project_suppressions_yaml(pid)}
+    except FileNotFoundError:
+        raise HTTPException(404, "Project not found")
+
+
+@app.post("/api/projects/{pid}/suppressions")
+def api_add_project_suppression(pid: str, payload: dict = Body(...)):
+    """Add a suppression for future scans of this project. With `scan_id`, the findings of that scan
+    it matches are marked Suppressed now too."""
+    payload = payload or {}
+    try:
+        entry = store.add_project_suppression(pid, payload)
+        hits = store.apply_suppression_to_scan(pid, payload["scan_id"], entry) if payload.get("scan_id") else []
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except FileNotFoundError:
+        raise HTTPException(404, "Project or scan not found")
+    return {"suppression": entry, "suppressed_in_scan": hits}
+
+
+@app.delete("/api/projects/{pid}/suppressions/{index}")
+def api_delete_project_suppression(pid: str, index: int):
+    try:
+        return store.delete_project_suppression(pid, index)
+    except FileNotFoundError:
+        raise HTTPException(404, "Suppression not found")
+
+
 @app.get("/api/projects/{pid}/scans")
 def api_scans(pid: str):
     try:
@@ -382,7 +413,7 @@ async def api_create_scan(pid: str, request: Request):
             run_template_scan, repo_path=scan_root, use_custom=bool(use_custom),
             custom_dir=store.custom_templates_dir(), out_dir=sd, formats=("html", "json", "sarif"),
             on_progress=lambda stage, detail: store.write_scan_progress(pid, sid, stage, detail),
-            workers=workers)
+            workers=workers, extra_suppressions=store.load_project_suppressions(pid))
     except Exception as e:
         store.finish_scan_progress(pid, sid, "error", {"message": str(e)})
         # keep progress.json/activity_log.json (delete_scan would wipe them too) so the failure

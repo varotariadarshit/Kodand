@@ -149,7 +149,8 @@ def _select_scan_files(entry_files: set[Path], supporting_files: set[Path], max_
 
 def run_template_scan(repo_path: str, use_custom: bool, custom_dir: Path | None,
                       out_dir: Path, formats=("html", "json", "sarif"), on_progress=None,
-                      *, workers: int = 1, use_cache: bool = True, max_scan_files: int | None = None) -> dict:
+                      *, workers: int = 1, use_cache: bool = True, max_scan_files: int | None = None,
+                      extra_suppressions: list[dict] | None = None) -> dict:
     """`on_progress(stage: str, detail: dict)`, called at each pipeline stage transition and once per
     file during template matching (stage="matching", detail has current_file/scanned/total) — feeds the
     web console's live scan-progress dashboard. Optional; scanning behaves identically without it.
@@ -312,7 +313,7 @@ def run_template_scan(repo_path: str, use_custom: bool, custom_dir: Path | None,
         findings = run_accuracy_pipeline(findings, declared_files=declared_files)
         # v3 suppression framework
         _progress("suppression")
-        findings, suppressed = apply_suppressions(findings, root)
+        findings, suppressed = apply_suppressions(findings, root, extra_suppressions)
 
         sev = {k: 0 for k in ["critical", "high", "medium", "low", "informational"]}
         by = {}

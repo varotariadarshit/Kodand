@@ -310,6 +310,9 @@ thead th{background:var(--surface-2);text-transform:uppercase;font-size:.7rem;le
         <div class="section-head"><h2>Scans</h2><button class="refresh" onclick="loadScans()">↻ Refresh</button></div>
         <div id="scan-list"></div>
 
+        <div class="section-head"><h2>Suppressions</h2><button class="refresh" id="sup-copy" onclick="copySuppressions()">Copy as .kodand.yml</button></div>
+        <div id="suppression-list"></div>
+
       </div>
     </div>
 
@@ -832,6 +835,30 @@ function showProject(p){
   toggleScanAgent();
   document.getElementById('p-mcp-shared').checked=!!p.mcp_shared;
   loadScans();
+  loadSuppressions();
+}
+let SUPPRESSIONS_YAML='';
+async function loadSuppressions(){
+  const el=document.getElementById('suppression-list');
+  try{
+    const d=await api('/api/projects/'+CUR.id+'/suppressions');SUPPRESSIONS_YAML=d.yaml;
+    document.getElementById('sup-copy').classList.toggle('hide',!d.suppressions.length);
+    if(!d.suppressions.length){el.innerHTML='<div class="panel empty">None. Use “Suppress…” on a False-positive verdict in a report to stop a finding coming back in future scans of this project.</div>';return;}
+    el.innerHTML=d.suppressions.map((s,i)=>{
+      const what=[s.rule&&`rule ${s.rule}`,s.path&&`in ${s.path}`,s.finding_id&&`finding ${s.finding_id}`,s.category&&`category ${s.category}`].filter(Boolean).join(' ');
+      return `<div class="entry two"><div><div class="name">${escHtml(what)}</div>
+        <div class="hash">${escHtml(s.reason||'')}${s.expires?' · expires '+escHtml(s.expires):''}${s.created?' · added '+escHtml(s.created):''}</div></div>
+        <div class="acts"><button class="danger" onclick="deleteSuppression(${i})">Delete</button></div></div>`;
+    }).join('');
+  }catch(e){el.innerHTML='';}
+}
+async function deleteSuppression(i){
+  if(!await appConfirm('Delete this suppression? Future scans of this project will report the finding again.'))return;
+  try{await api('/api/projects/'+CUR.id+'/suppressions/'+i,{method:'DELETE'});toast('Suppression deleted');loadSuppressions();}catch(e){toast(e.message,false);}
+}
+async function copySuppressions(){
+  try{await navigator.clipboard.writeText(SUPPRESSIONS_YAML);toast('Copied — paste it into .kodand.yml at the root of the scanned folder');}
+  catch(e){toast('Couldn’t copy: '+e.message,false);}
 }
 async function toggleProjectMcpSharing(){
   const cb=document.getElementById('p-mcp-shared');

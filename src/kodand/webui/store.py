@@ -278,6 +278,70 @@ def delete_comment(pid: str, sid: str, finding_id: str, comment_id: str) -> None
     _save_overrides(pid, sid, overrides)
 
 
+# --- Project suppressions: `.kodand.yml`-style entries kept in Kodand's workspace (never written into
+# the scanned source), applied to every scan of the project alongside the repo's own .kodand.yml ---
+
+_SUPPRESSION_FIELDS = ("rule", "path", "finding_id", "category", "reason", "expires")
+
+
+def _suppressions_path(pid: str) -> Path:
+    return _project_dir(pid) / "suppressions.yml"
+def load_project_suppressions(pid: str) -> list:
+    p = _suppressions_path(pid)
+    if not p.exists(): return []
+    data = yaml.safe_load(p.read_text()) or {}
+    return [s for s in data.get("suppressions") or [] if isinstance(s, dict)]
+def _save_project_suppressions(pid: str, entries: list) -> None:
+    _suppressions_path(pid).write_text(yaml.safe_dump({"suppressions": entries}, sort_keys=False, allow_unicode=True))
+
+
+def add_project_suppression(pid: str, entry: dict) -> dict:
+    from datetime import date
+    e = {k: str(entry[k]).strip() for k in _SUPPRESSION_FIELDS if entry.get(k) not in (None, "")}
+    if not any(e.get(k) for k in ("rule", "path", "finding_id", "category")):
+        raise ValueError("A suppression needs at least one of rule, path, finding_id or category.")
+    if not e.get("reason"):
+        raise ValueError("Give a reason, so the suppression can be audited later.")
+    if e.get("path", "").startswith("/") or ".." in e.get("path", "").split("/"):
+        raise ValueError("Path must be relative to the scanned folder, e.g. docs/** or Agent-1/SKILL.md.")
+    if e.get("expires"):
+        try:
+            date.fromisoformat(e["expires"])
+        except ValueError:
+            raise ValueError("Expiry must be a date like 2026-12-31.")
+    e["created"] = _now()
+    entries = load_project_suppressions(pid) + [e]
+    _save_project_suppressions(pid, entries)
+    return e
+
+
+def delete_project_suppression(pid: str, index: int) -> dict:
+    entries = load_project_suppressions(pid)
+    if not 0 <= index < len(entries): raise FileNotFoundError("suppression not found")
+    removed = entries.pop(index)
+    _save_project_suppressions(pid, entries)
+    return removed
+
+
+def project_suppressions_yaml(pid: str) -> str:
+    """The project's suppressions as a `.kodand.yml` block, to paste into the repo itself."""
+    entries = [{k: v for k, v in e.items() if k in _SUPPRESSION_FIELDS} for e in load_project_suppressions(pid)]
+    return yaml.safe_dump({"suppressions": entries}, sort_keys=False, allow_unicode=True)
+
+
+def apply_suppression_to_scan(pid: str, sid: str, entry: dict) -> list:
+    """Mark this scan's findings that `entry` matches as suppressed, so a new suppression shows at once
+    rather than only on the next scan. Returns their ids."""
+    from kodand.models.analysis import CorrelatedFinding
+    from kodand.suppress import Suppression
+    rule = Suppression(entry)
+    hits = [f["finding_id"] for f in _analysis(pid, sid).get("findings", [])
+            if rule.matches(CorrelatedFinding.model_validate(f))]
+    for fid in hits:
+        set_finding_status(pid, sid, fid, "suppressed")
+    return hits
+
+
 # --- AI assistant settings (global, workspace-level) ---
 
 AI_PROVIDERS = ("openai", "claude", "gemini", "custom")

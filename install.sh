@@ -2,9 +2,18 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)";BIN="$HOME/.local/bin";mkdir -p "$BIN"
 EXTRAS="${1:-all}"  # all = ui + mcp + code; pass e.g. "ui,mcp" for less, or "" for the bare CLI
-SPEC="$ROOT"; [ -n "$EXTRAS" ] && SPEC="$ROOT[$EXTRAS]"
+# Install from a snapshot of the tree taken right now, not the live checkout: the build reads files for
+# a while, and a branch switch in another terminal meanwhile once produced an install mixing two
+# versions. Tracked + untracked-but-not-ignored files, so uncommitted edits are still included.
+SRC="$ROOT"
+if command -v git >/dev/null 2>&1 && git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  SRC="$(mktemp -d)"; trap 'rm -rf "$SRC"' EXIT
+  (cd "$ROOT" && git ls-files -z -co --exclude-standard | while IFS= read -r -d '' f; do if [ -e "$f" ]; then printf '%s\0' "$f"; fi; done \
+     | tar --null -T - -cf -) | tar -xf - -C "$SRC"
+fi
+SPEC="$SRC"; [ -n "$EXTRAS" ] && SPEC="$SRC[$EXTRAS]"
 if command -v pipx >/dev/null 2>&1;then pipx install --force "$SPEC";elif command -v uv >/dev/null 2>&1;then uv tool install --force "$SPEC";else ENV="$HOME/.local/share/kodand";python3 -m venv "$ENV";"$ENV/bin/python" -m pip install --upgrade pip setuptools wheel;"$ENV/bin/pip" install --force-reinstall "$SPEC";ln -sf "$ENV/bin/kodand" "$BIN/kodand";fi
-VER="$(grep -m1 '^version=' "$ROOT/pyproject.toml" | sed -E 's/version="([^"]+)"/\1/')"
+VER="$(grep -m1 '^version=' "$SRC/pyproject.toml" | sed -E 's/version="([^"]+)"/\1/')"
 echo "Installed Kodand $VER (extras: $EXTRAS). Run: kodand        Web UI: kodand ui"
 # a running "kodand ui" process keeps executing the old code in memory after an
 # install/upgrade — restart the service so it actually picks up the new build

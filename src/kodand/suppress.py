@@ -86,9 +86,10 @@ def load_suppressions_v2(root) -> list[Suppression]:
     return out
 
 
-def apply_suppressions(findings: list[CorrelatedFinding], root) -> tuple[list[CorrelatedFinding], int]:
-    """Mark matching findings as suppressed. Returns (active_findings, suppressed_count)."""
-    rules = [s for s in load_suppressions_v2(root) if s.active()]
+def apply_suppressions(findings: list[CorrelatedFinding], root, extra: list[dict] | None = None) -> tuple[list[CorrelatedFinding], int]:
+    """Mark matching findings as suppressed. Returns (active_findings, suppressed_count). `extra` adds
+    entries kept outside the repo (the web console's per-project suppressions) to its `.kodand.yml`."""
+    rules = [s for s in load_suppressions_v2(root) + [Suppression(d) for d in extra or []] if s.active()]
     if not rules:
         return findings, 0
     active, suppressed = [], 0
