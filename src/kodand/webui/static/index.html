@@ -35,6 +35,8 @@ a{color:var(--accent);text-decoration:none}
 code{font-family:'IBM Plex Mono',ui-monospace,Menlo,Consolas,monospace;background:rgba(255,255,255,.08);padding:2px 6px;border-radius:6px;font-size:.85em;color:#c9d4ff;word-break:break-all}
 h1,h2,h3,h4{margin:0 0 .5em;line-height:1.25}
 .hide{display:none!important}
+.vchips{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}.vchip{font-size:11px;font-weight:600;padding:2px 9px;border:1px solid;border-radius:999px;opacity:.9}
+.choice-list{display:flex;flex-direction:column;gap:8px;margin-top:14px}.choice-list label{display:flex;gap:10px;align-items:center;font-size:13px;cursor:pointer}.choice-list label.disabled{opacity:.45;cursor:default}
 .small{font-size:12px}
 .muted{color:var(--text-secondary)}
 
@@ -891,6 +893,13 @@ async function submitCreateProject(){
 async function delProject(pid){if(!await appConfirm('Delete this project and all its scans?'))return;try{await api('/api/projects/'+pid,{method:'DELETE'});toast('Project deleted');loadProjects();}catch(e){toast(e.message,false);}}
 async function deleteCurrentProject(){if(!await appConfirm('Delete this project and all its scans?'))return;await api('/api/projects/'+CUR.id,{method:'DELETE'});toast('Project deleted');showProjects();}
 
+// same colours as the verdict badges in reports
+const VERDICT_CHIP=[['true_positive','True positive','#f43f5e'],['false_positive','False positive','#22c55e'],['needs_review','Needs review','#facc15'],['unverified','No verdict','var(--text-faint)']];
+function verdictChips(v){
+  if(!v)return '';
+  const chips=VERDICT_CHIP.filter(([k])=>v[k]).map(([k,label,c])=>`<span class="vchip" style="color:${c};border-color:${c}">${v[k]} ${label}</span>`).join('');
+  return chips?`<div class="vchips">${chips}</div>`:'';
+}
 async function loadScans(){
   const el=document.getElementById('scan-list');const ss=await api('/api/projects/'+CUR.id+'/scans');
   if(!ss.length){el.innerHTML='<div class="panel empty">No scans yet. Run one above.</div>';return;}
@@ -901,7 +910,7 @@ async function loadScans(){
     const filesUrl=`/static/files.html?project=${encodeURIComponent(CUR.id)}&scan=${encodeURIComponent(s.id)}`;
     return `<div class="entry">
       <div><div class="name">${escHtml(s.label||s.repository)}</div><div class="hash">${escHtml(s.id)}</div>
-        <div class="stats"><span>${escHtml(s.findings)} finding${s.findings===1?'':'s'}${supp}</span><span>${escHtml(s.skill_files)} entrypoint file(s)</span><span>${escHtml(s.templates_total)} templates${s.use_custom?` (incl. ${escHtml(s.templates_custom)} custom)`:''}</span><span>${escHtml(s.created)}</span></div></div>
+        <div class="stats"><span>${escHtml(s.findings)} finding${s.findings===1?'':'s'}${supp}</span><span>${escHtml(s.skill_files)} entrypoint file(s)</span><span>${escHtml(s.templates_total)} templates${s.use_custom?` (incl. ${escHtml(s.templates_custom)} custom)`:''}</span><span>${escHtml(s.created)}</span></div>${verdictChips(s.verdicts)}</div>
       <span class="badge ${escHtml(rc)}">${escHtml(risk)}</span>
       <div class="acts"><a href="${reportUrl}" target="_blank" rel="noopener">Report</a><a href="${filesUrl}" target="_blank" rel="noopener">Files</a><a href="/api/projects/${CUR.id}/scans/${s.id}/download/json" target="_blank" rel="noopener">JSON</a><button onclick="verifyScanWithAgent('${s.id}')" title="Send this scan's findings to your Claude Agent session">Verify with Claude Agent</button><button onclick="deleteArtifacts('${s.id}')">Delete Artifacts</button><button class="danger" onclick="delScan('${s.id}')">Delete</button></div>
     </div>`;
@@ -924,13 +933,33 @@ async function toggleScanAgent(){
   hint.textContent='No filter means every finding is sent. Each one uses your Claude plan’s usage.';hint.style.color='';
   try{const s=await api('/api/agent/status');if(s.state!=='idle'&&s.state!=='busy'){const l=agentStateLine(s);hint.textContent+=' Claude Agent: '+l.text;}}catch(e){}
 }
+// a confirm dialog with a radio choice; resolves to the chosen value, or null on Cancel
+function appChoose(msg,choices,confirmLabel){
+  return new Promise(resolve=>{
+    const ov=document.getElementById('app-modal'),box=document.getElementById('app-modal-msg');
+    const first=choices.find(c=>!c.disabled);
+    box.innerHTML=`<div>${escHtml(msg)}</div><div class="choice-list">${choices.map(c=>`<label class="${c.disabled?'disabled':''}"><input type="radio" name="app-choice" value="${escHtml(c.value)}"${c.disabled?' disabled':''}${c===first?' checked':''}> ${escHtml(c.label)}</label>`).join('')}</div>`;
+    const actions=document.getElementById('app-modal-actions');actions.innerHTML='';
+    const cancel=document.createElement('button');cancel.className='ghostbtn';cancel.textContent='Cancel';
+    const ok=document.createElement('button');ok.className='run';ok.textContent=confirmLabel;
+    const close=v=>{ov.classList.add('hide');box.textContent='';resolve(v);};
+    cancel.onclick=()=>close(null);ok.onclick=()=>{const c=box.querySelector('input[name=app-choice]:checked');close(c?c.value:null);};
+    actions.append(cancel,ok);ov.classList.remove('hide');
+  });
+}
 async function verifyScanWithAgent(sid){
   const base='/api/projects/'+CUR.id+'/scans/'+sid+'/agent-verify';
   try{
-    const {count}=await api(base,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({dry_run:true})});
-    if(!count)return toast('This scan has no findings to verify');
-    if(!await appConfirm(`Send all ${count} finding${count===1?'':'s'} of this scan to Claude Agent? Each one uses your Claude plan’s usage. Findings already queued are skipped.`,'Send'))return;
-    const r=await api(base,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});
+    const {counts}=await api(base,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({dry_run:true})});
+    if(!counts.all)return toast('This scan has no findings to verify');
+    const n=k=>`${counts[k]} finding${counts[k]===1?'':'s'}`;
+    const only=await appChoose('Send findings of this scan to Claude Agent? Each one uses your Claude plan’s usage; findings already queued are skipped.',[
+      {value:'all',label:`All findings — ${n('all')}`},
+      {value:'unverified',label:`Only findings without a verdict — ${n('unverified')}`,disabled:!counts.unverified},
+      {value:'false_positive',label:`Re-check current False positives — ${n('false_positive')}`,disabled:!counts.false_positive},
+    ],'Send');
+    if(!only)return;
+    const r=await api(base,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(only==='all'?{}:{only})});
     const s=await api('/api/agent/status');
     toast(`${r.queued} finding${r.queued===1?'':'s'} queued for Claude Agent`+(s.state==='offline'?' — start it with kodand agent':''),s.state!=='offline');
   }catch(e){toast(e.message,false);}

@@ -317,3 +317,38 @@ def test_worker_times_out_a_stuck_run(tmp_path, fake_claude, monkeypatch):
     assert time.monotonic() - t0 < 15  # killed the whole run, not just the top process
     j = store.get_agent_job(job["id"])
     assert j["status"] == "failed" and "Timed out" in j["error"]
+
+
+# --- verdict workflow -----------------------------------------------------------------------------
+
+def test_latest_verdict_wins_and_scan_summary_counts_them(tmp_path):
+    pid, sid, findings = _scan(tmp_path)
+    a, b = findings[0]["finding_id"], findings[1]["finding_id"]
+    store.add_comment(pid, sid, a, "Verdict: False positive\n\nold rules", kind="ai")
+    store.add_comment(pid, sid, a, "a note without a verdict")
+    assert store.finding_verdicts(pid, sid)[a] == "false_positive"
+    store.add_comment(pid, sid, a, "Verdict: True positive\n\nre-verified", kind="ai")
+    store.add_comment(pid, sid, b, "Verdict: Needs review", kind="ai")
+    v = store.finding_verdicts(pid, sid)
+    assert v[a] == "true_positive" and v[b] == "needs_review"
+    s = store.verdict_summary(pid, sid)
+    assert s == {"true_positive": 1, "false_positive": 0, "needs_review": 1, "unverified": len(findings) - 2}
+
+
+def test_reverify_selection_by_current_verdict(tmp_path):
+    pid, sid, findings = _scan(tmp_path)
+    fp, tp = findings[0]["finding_id"], findings[1]["finding_id"]
+    store.add_comment(pid, sid, fp, "Verdict: False positive", kind="ai")
+    store.add_comment(pid, sid, tp, "Verdict: True positive", kind="ai")
+    ids = lambda only: {f["finding_id"] for f in store.select_findings_for_agent(pid, sid, only=only)}  # noqa: E731
+    assert ids("false_positive") == {fp}
+    assert ids("unverified") == {f["finding_id"] for f in findings} - {fp, tp}
+    assert len(store.enqueue_scan_verification(pid, sid, only="false_positive")) == 1
+    with pytest.raises(ValueError, match="Unknown selection"):
+        store.select_findings_for_agent(pid, sid, only="maybe")
+
+
+def test_report_has_verdict_filter_and_mark_as_button():
+    from kodand.reporting import _JS
+    assert "updateVerdictFilter" in _JS and "rv-c-apply" in _JS and "panel._setStatus" in _JS
+    assert "VERDICT_STATUS={true_positive:'confirmed',false_positive:'false-positive'" in _JS

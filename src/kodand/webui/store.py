@@ -221,6 +221,26 @@ def parse_verdict(text: str) -> str | None:
     return "true_positive" if word.startswith("true") else "false_positive" if word.startswith("false") else "needs_review"
 
 
+def comment_verdict(comment: dict) -> str | None:
+    return comment.get("verdict") or parse_verdict(comment.get("text", ""))
+
+
+def finding_verdicts(pid: str, sid: str) -> dict:
+    """{finding_id: latest verdict or None} — the most recent comment that states one wins, so a
+    re-verification (or your own "Verdict: …" comment) supersedes an older verdict."""
+    out = {}
+    for fid, entry in get_review(pid, sid).items():
+        out[fid] = next((v for v in map(comment_verdict, reversed(entry["comments"])) if v), None)
+    return out
+
+
+def verdict_summary(pid: str, sid: str) -> dict:
+    counts = {v: 0 for v in COMMENT_VERDICTS} | {"unverified": 0}
+    for v in finding_verdicts(pid, sid).values():
+        counts[v or "unverified"] += 1
+    return counts
+
+
 def add_comment(pid: str, sid: str, finding_id: str, text: str, author: str = "You", kind: str = "user",
                 verdict: str | None = None) -> dict:
     text = (text or "").strip()
@@ -475,20 +495,32 @@ def enqueue_agent_job(pid: str, sid: str, finding_id: str, origin: str = "manual
         return _save_agent_job(_new_agent_job(pid, sid, finding, origin))
 
 
-def select_findings_for_agent(pid: str, sid: str, min_severity: str | None = None, max_findings: int | None = None) -> list:
-    """Findings a bulk/auto run would queue, most severe first. No filter means every finding."""
+AGENT_SELECTIONS = ("unverified", "false_positive")
+
+
+def select_findings_for_agent(pid: str, sid: str, min_severity: str | None = None, max_findings: int | None = None,
+                              only: str | None = None) -> list:
+    """Findings a bulk/auto run would queue, most severe first. No filter means every finding;
+    `only` narrows it to findings without a verdict yet, or whose latest verdict is False positive
+    (to re-check them, e.g. after the review rules changed)."""
     if min_severity and min_severity not in _SEVERITY_RANK:
         raise ValueError(f"Unknown severity '{min_severity}'")
+    if only and only not in AGENT_SELECTIONS:
+        raise ValueError(f"Unknown selection '{only}'")
     floor = _SEVERITY_RANK.get(min_severity or "informational", 0)
     findings = [f for f in _analysis(pid, sid).get("findings", []) if _SEVERITY_RANK.get(f.get("severity"), 0) >= floor]
+    if only:
+        verdicts = finding_verdicts(pid, sid)
+        want = None if only == "unverified" else only
+        findings = [f for f in findings if verdicts.get(f["finding_id"]) == want]
     findings.sort(key=lambda f: -_SEVERITY_RANK.get(f.get("severity"), 0))
     return findings[:max_findings] if max_findings else findings
 
 
 def enqueue_scan_verification(pid: str, sid: str, min_severity: str | None = None,
-                              max_findings: int | None = None, origin: str = "auto") -> list:
+                              max_findings: int | None = None, origin: str = "auto", only: str | None = None) -> list:
     require_mcp_shared(pid)
-    findings = select_findings_for_agent(pid, sid, min_severity, max_findings)
+    findings = select_findings_for_agent(pid, sid, min_severity, max_findings, only)
     with _agent_lock():
         open_ids = {j["finding_id"] for j in _load_agent_jobs()
                     if j["project_id"] == pid and j["scan_id"] == sid and j["status"] in AGENT_OPEN_STATES}

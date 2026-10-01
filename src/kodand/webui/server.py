@@ -273,9 +273,15 @@ def api_set_project_mcp_sharing(pid: str, payload: dict = Body(...)):
 @app.get("/api/projects/{pid}/scans")
 def api_scans(pid: str):
     try:
-        return store.list_scans(pid)
+        scans = store.list_scans(pid)
     except FileNotFoundError:
         raise HTTPException(404, "Project not found")
+    for s in scans:
+        try:
+            s["verdicts"] = store.verdict_summary(pid, s["id"])
+        except FileNotFoundError:
+            pass  # a scan that failed before writing analysis.json has nothing to count
+    return scans
 
 
 def _agent_filters(min_severity, max_findings) -> tuple[str | None, int | None]:
@@ -577,11 +583,15 @@ def api_agent_verify_scan(pid: str, sid: str, request: Request, payload: dict = 
     so the console can say how many jobs it's about to queue before the user confirms."""
     payload = payload or {}
     min_severity, max_findings = _agent_filters(payload.get("min_severity"), payload.get("max_findings"))
+    only = payload.get("only") or None
     try:
         if payload.get("dry_run"):
-            return {"count": len(store.select_findings_for_agent(pid, sid, min_severity, max_findings))}
+            # counts for every choice the console offers, so its dialog can show them side by side
+            counts = {key: len(store.select_findings_for_agent(pid, sid, min_severity, max_findings, key or None))
+                      for key in ("", *store.AGENT_SELECTIONS)}
+            return {"count": counts[only or ""], "counts": {"all": counts[""], **{k: counts[k] for k in store.AGENT_SELECTIONS}}}
         _require_local_agent_request(request)
-        jobs = store.enqueue_scan_verification(pid, sid, min_severity, max_findings, origin="manual")
+        jobs = store.enqueue_scan_verification(pid, sid, min_severity, max_findings, origin="manual", only=only)
     except ValueError as e:
         raise HTTPException(400, str(e))
     except FileNotFoundError:

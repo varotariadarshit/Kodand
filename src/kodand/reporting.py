@@ -104,6 +104,7 @@ tbody tr:hover{background:rgba(255,255,255,.03)}td ul{margin:0;padding-left:18px
 .ev{background:rgba(0,0,0,.28);border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:10px 12px;margin:8px 0;font-size:.86rem}
 .ev .hash{color:var(--muted);font-size:.72rem;word-break:break-all}
 .rv-c-time{text-align:right;margin-top:8px}
+.vfilters{margin-top:8px;align-items:center}.vf-label{font-size:.72rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-right:4px}
 .caret{transition:transform .2s;color:var(--muted)}.finding.open .caret{transform:rotate(90deg)}
 .toc{columns:2;gap:26px}@media(max-width:640px){.toc{columns:1}}.toc li{margin:4px 0;break-inside:avoid}
 .toc-wrap{display:flex;flex-direction:column;gap:18px}
@@ -153,10 +154,19 @@ tbody tr:hover{background:rgba(255,255,255,.03)}td ul{margin:0;padding-left:18px
 """
 
 _JS = """
+// severity filter (always) x verdict filter (only when served live — it needs the review data)
+const KODAND_FILTER={sev:'all',verdict:'all'};
+function applyFindingFilters(){
+  document.querySelectorAll('.finding').forEach(f=>{
+    const okSev=KODAND_FILTER.sev==='all'||f.dataset.severity===KODAND_FILTER.sev;
+    const v=f.dataset.verdict||'none', okVerdict=KODAND_FILTER.verdict==='all'||v===KODAND_FILTER.verdict;
+    f.style.display=okSev&&okVerdict?'':'none';
+  });
+}
 document.addEventListener('DOMContentLoaded',()=>{
   document.querySelectorAll('.bar-fill,.scorebar i').forEach(el=>{const w=el.getAttribute('data-w');if(w!==null){requestAnimationFrame(()=>{setTimeout(()=>{el.style.width=w+'%';},80);});}});
   document.querySelectorAll('.finding .fhead').forEach(h=>{h.addEventListener('click',()=>{const c=h.closest('.finding');c.classList.toggle('open');c.querySelector('.fbody').classList.toggle('collapsed');});});
-  const btns=document.querySelectorAll('.fbtn');btns.forEach(b=>b.addEventListener('click',()=>{btns.forEach(x=>x.classList.remove('active'));b.classList.add('active');const s=b.dataset.sev;document.querySelectorAll('.finding').forEach(f=>{f.style.display=(s==='all'||f.dataset.severity===s)?'':'none';});}));
+  const btns=document.querySelectorAll('.fbtn[data-sev]');btns.forEach(b=>b.addEventListener('click',()=>{btns.forEach(x=>x.classList.remove('active'));b.classList.add('active');KODAND_FILTER.sev=b.dataset.sev;applyFindingFilters();}));
 });
 
 // Finding review: status / comments / AI review — only active when this report is served live
@@ -219,6 +229,7 @@ document.addEventListener('DOMContentLoaded',()=>{
     const w=m[1].toLowerCase();
     return w.startsWith('true')?'true_positive':w.startsWith('false')?'false_positive':'needs_review';
   }
+  const VERDICT_STATUS={true_positive:'confirmed',false_positive:'false-positive',needs_review:'needs-review'};
   function verdictBadge(c){
     const v=VERDICT[commentVerdict(c)]; if(!v)return '';
     return `<span class="rv-verdict" style="color:${v.color};border-color:${v.color}88;background:${v.color}22">${v.label}</span>`;
@@ -231,6 +242,7 @@ document.addEventListener('DOMContentLoaded',()=>{
         <div class="row" style="justify-content:space-between;flex-wrap:nowrap">
           <div><b>${esc(c.author)}</b>${verdictBadge(c)}</div>
           <div class="row" style="gap:6px">
+            ${commentVerdict(c)?`<button type="button" class="sm rv-c-apply" data-verdict="${commentVerdict(c)}" title="Set this finding's review status from this verdict">Mark as ${VERDICT[commentVerdict(c)].label}</button>`:''}
             <button type="button" class="sm rv-c-edit">Edit</button>
             <button type="button" class="sm rv-c-del">Delete</button>
           </div>
@@ -238,10 +250,11 @@ document.addEventListener('DOMContentLoaded',()=>{
         <div class="rv-c-text">${esc(c.text)}</div>
         <div class="hash rv-c-time">${esc(c.created)}${c.edited?' (edited)':''}</div>
       </div>`).join(''):'<div class="hash">No comments yet.</div>';
+    el.querySelectorAll('.rv-c-apply').forEach(btn=>btn.addEventListener('click', ()=>panel._setStatus&&panel._setStatus(VERDICT_STATUS[btn.dataset.verdict])));
     el.querySelectorAll('.rv-c-edit').forEach(btn=>btn.addEventListener('click', ()=>startEditComment(panel, btn.closest('.cm'))));
     el.querySelectorAll('.rv-c-del').forEach(btn=>btn.addEventListener('click', ()=>deleteComment(panel, btn.closest('.cm').dataset.cid)));
   }
-  async function refreshComments(panel){const fid=panel.dataset.fid;const rv=await api(base+'/review');renderComments(panel,rv[fid].comments);}
+  async function refreshComments(panel){const fid=panel.dataset.fid;const rv=await api(base+'/review');LAST_REVIEW=rv;renderComments(panel,rv[fid].comments);updateVerdictFilter();}
   async function deleteComment(panel,cid){
     if(!await appConfirm('Delete this comment?'))return;
     const fid=panel.dataset.fid;
@@ -294,13 +307,14 @@ document.addEventListener('DOMContentLoaded',()=>{
       list.classList.remove('hide');
       openCsel={csel,list};
     });
-    opts.forEach(o=>o.addEventListener('click',async ()=>{
-      closeOpenDropdown();
-      const v=o.dataset.value; const prev=csel.dataset.value; if(v===prev)return;
+    const setStatus=async v=>{
+      const prev=csel.dataset.value; if(v===prev)return;
       apply(v);
       try{const res=await api(`${base}/findings/${panel.dataset.fid}/status`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:v})});setPill(panel.dataset.fid,res.status);await recomputeSummary();}
       catch(err){apply(prev);appAlert(err.message);}
-    }));
+    };
+    panel._setStatus=setStatus;  // also used by a verdict's "Mark as …" button
+    opts.forEach(o=>o.addEventListener('click',()=>{closeOpenDropdown();setStatus(o.dataset.value);}));
   }
   document.addEventListener('click',closeOpenDropdown);
   document.addEventListener('scroll',closeOpenDropdown,true);
@@ -334,6 +348,28 @@ document.addEventListener('DOMContentLoaded',()=>{
   function watchAgentJob(fid,panel){agentWatch.set(fid,panel); if(!agentTimer)agentTimer=setInterval(pollAgentJobs,3000);}
 
   let LAST_REVIEW={};
+  // Verdict filter: each finding's latest verdict (the newest comment that states one), with counts.
+  const VERDICT_FILTERS=[['all','All'],['true_positive','True positive'],['false_positive','False positive'],['needs_review','Needs review'],['none','No verdict']];
+  function updateVerdictFilter(){
+    const counts={all:0,true_positive:0,false_positive:0,needs_review:0,none:0};
+    document.querySelectorAll('.finding').forEach(f=>{
+      const cms=((LAST_REVIEW[f.id]||{}).comments||[]).slice().reverse();
+      const v=cms.map(commentVerdict).find(Boolean)||'none';
+      f.dataset.verdict=v; counts.all++; counts[v]++;
+    });
+    let row=document.querySelector('.vfilters');
+    if(!row){
+      const sev=document.querySelector('.filters'); if(!sev)return;
+      row=document.createElement('div'); row.className='filters vfilters';
+      sev.insertAdjacentElement('afterend',row);
+      row.addEventListener('click',e=>{const b=e.target.closest('.fbtn');if(!b)return;KODAND_FILTER.verdict=b.dataset.verdict;updateVerdictFilter();applyFindingFilters();});
+    }
+    row.innerHTML='<span class="vf-label">Verdict</span>'+VERDICT_FILTERS.map(([k,label])=>{
+      const c=(VERDICT[k]||{}).color;
+      return `<span class="fbtn${KODAND_FILTER.verdict===k?' active':''}" data-verdict="${k}"${c?` style="border-color:${c}88"`:''}>${label} (${counts[k]})</span>`;
+    }).join('');
+    applyFindingFilters();
+  }
   async function recomputeSummary(review){
     if(!review){try{review=await api(base+'/review');}catch(e){return;}}
     LAST_REVIEW=review;
@@ -428,6 +464,7 @@ document.addEventListener('DOMContentLoaded',()=>{
       });
     });
     recomputeSummary(review);
+    updateVerdictFilter();
     // pick up jobs queued earlier (e.g. by auto-verify on this scan) so their progress shows too
     try{
       const latest=await agentJobsByFinding();

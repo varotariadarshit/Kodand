@@ -116,3 +116,16 @@ def test_queuing_is_loopback_only_unless_opened_up(tmp_path, monkeypatch):
     r = client.post(f"/api/projects/{pid}/scans/{scan['id']}/findings/{fid}/agent-verify")
     assert r.status_code == 403 and "this machine" in r.json()["detail"]
     assert _scan(pid, tmp_path, agent_verify="true").status_code == 403
+
+
+def test_scan_list_carries_verdict_counts_and_bulk_dry_run_counts_each_choice(tmp_path):
+    pid = _project()
+    scan = _scan(pid, tmp_path).json()
+    fid = store._analysis(pid, scan["id"])["findings"][0]["finding_id"]
+    store.add_comment(pid, scan["id"], fid, "Verdict: False positive", kind="ai")
+    listed = next(s for s in client.get(f"/api/projects/{pid}/scans").json() if s["id"] == scan["id"])
+    assert listed["verdicts"]["false_positive"] == 1 and listed["verdicts"]["unverified"] == scan["findings"] - 1
+    base = f"/api/projects/{pid}/scans/{scan['id']}/agent-verify"
+    counts = client.post(base, json={"dry_run": True}).json()["counts"]
+    assert counts == {"all": scan["findings"], "unverified": scan["findings"] - 1, "false_positive": 1}
+    assert client.post(base, json={"only": "false_positive"}).json()["queued"] == 1
