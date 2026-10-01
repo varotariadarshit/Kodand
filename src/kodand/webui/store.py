@@ -104,6 +104,119 @@ def delete_scan_target(pid: str, sid: str) -> bool:
     t = scan_dir(pid, sid)/"target"
     if t.exists(): shutil.rmtree(t); return True
     return False
+
+
+# --- Job files: the scanned source each scan keeps (target/) so findings can be reviewed in the files
+# themselves. They're what takes the space, so they get a retention period (off by default), a Keep tag
+# that exempts a scan, and a size history for the console's storage graph. Deleting job files never
+# touches findings, reports, comments or verdicts — it's the same as "Delete Artifacts". ---
+
+STORAGE_HISTORY_MAX = 2000
+
+
+def storage_settings_path() -> Path:
+    return workspace_root() / "storage_settings.json"
+def load_storage_settings() -> dict:
+    data = _read_json(storage_settings_path()) or {}
+    data.setdefault("retention_days", None)  # None = keep job files forever
+    return data
+def save_storage_settings(payload: dict) -> dict:
+    days = (payload or {}).get("retention_days")
+    if days in (None, "", 0, "0"):
+        days = None
+    else:
+        try:
+            days = int(days)
+        except (TypeError, ValueError):
+            raise ValueError("Retention must be a whole number of days, or empty to keep job files forever.")
+        if not 1 <= days <= 3650:
+            raise ValueError("Retention must be between 1 and 3650 days, or empty to keep job files forever.")
+    data = {**load_storage_settings(), "retention_days": days}
+    _write_json_atomic(storage_settings_path(), data)
+    return data
+
+
+def _dir_size(path: Path) -> tuple[int, int]:
+    total = files = 0
+    for p in path.rglob("*"):
+        try:
+            if p.is_file() and not p.is_symlink():
+                total += p.stat().st_size; files += 1
+        except OSError:
+            continue
+    return total, files
+
+
+def set_keep_job_files(pid: str, sid: str, keep: bool) -> dict:
+    meta_path = scan_dir(pid, sid) / "scan.json"
+    if not meta_path.exists(): raise FileNotFoundError("scan not found")
+    meta = json.loads(meta_path.read_text())
+    meta["keep_files"] = bool(keep)
+    meta_path.write_text(json.dumps(meta, indent=2))
+    return meta
+
+
+def list_job_files() -> list:
+    """Every scan that still has its job files, newest first: size, file count, Keep tag, and when
+    retention would delete them (None when kept, retention is off, or Claude Agent still needs them)."""
+    days = load_storage_settings()["retention_days"]
+    open_jobs = {(j["project_id"], j["scan_id"]) for j in _load_agent_jobs() if j["status"] in AGENT_OPEN_STATES}
+    out = []
+    for proj in list_projects():
+        for meta in list_scans(proj["id"]):
+            sid = meta.get("id")
+            try:
+                target = scan_dir(proj["id"], sid) / "target"
+            except FileNotFoundError:
+                continue
+            if not target.exists():
+                continue
+            size, files = _dir_size(target)
+            keep, busy = bool(meta.get("keep_files")), (proj["id"], sid) in open_jobs
+            deletes_at = None
+            if days and not keep and not busy and meta.get("created"):
+                deletes_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(
+                    calendar.timegm(time.strptime(meta["created"], "%Y-%m-%dT%H:%M:%SZ")) + days * 86400))
+            out.append({"project_id": proj["id"], "project_name": proj.get("name"), "scan_id": sid,
+                        "label": meta.get("label") or sid, "created": meta.get("created"), "bytes": size,
+                        "files": files, "keep": keep, "agent_jobs_open": busy, "deletes_at": deletes_at})
+    return sorted(out, key=lambda x: x.get("created") or "", reverse=True)
+
+
+def purge_expired_job_files() -> list:
+    """Delete the job files of scans older than the retention period — except scans tagged Keep and scans
+    Claude Agent still has open jobs for. Findings and reports stay. Returns what was deleted."""
+    if not load_storage_settings()["retention_days"]:
+        return []
+    now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    gone = []
+    for entry in list_job_files():
+        if entry["deletes_at"] and entry["deletes_at"] <= now:
+            if delete_scan_target(entry["project_id"], entry["scan_id"]):
+                gone.append({k: entry[k] for k in ("project_id", "scan_id", "label", "bytes")})
+    return gone
+
+
+def storage_history_path() -> Path:
+    return workspace_root() / "storage_history.json"
+def read_storage_history() -> list:
+    data = _read_json(storage_history_path())
+    return data if isinstance(data, list) else []
+
+
+def record_storage_snapshot() -> dict:
+    """Append the current total size of all job files to the history behind the storage graph. Called
+    hourly and after anything that adds or removes job files; an unchanged size within the same hour
+    replaces the last point instead of piling up identical ones."""
+    entries = list_job_files()
+    point = {"t": _now(), "bytes": sum(e["bytes"] for e in entries), "scans": len(entries)}
+    history = read_storage_history()
+    if history and history[-1]["bytes"] == point["bytes"] and history[-1]["t"][:13] == point["t"][:13]:
+        history[-1] = point
+    else:
+        history.append(point)
+    _write_json_atomic(storage_history_path(), history[-STORAGE_HISTORY_MAX:])
+    return point
 def list_scan_files(pid: str, sid: str) -> list:
     target = scan_dir(pid, sid)/"target"
     if not target.exists(): return []

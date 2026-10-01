@@ -83,7 +83,8 @@ kodand schema --output analysis-schema.json   # dump the RepositoryAnalysis JSON
 
 kodand ui [--host 127.0.0.1] [--port 8787] [--allow-remote]   # launch the web console
 kodand mcp                                                     # run as an MCP server (stdio)
-kodand agent [--once] [--timeout 600]  # verify findings queued in the web console with your Claude Code
+kodand agent [--once] [--timeout 600] [--parallel N]   # verify findings queued in the web console with your Claude Code
+kodand agent --install-service [--parallel N]           # …or keep it running as a systemd user service (--uninstall-service)
 ```
 
 Notes:
@@ -153,6 +154,11 @@ agent (Claude Code)"** for MCP-triggered scans, or **"Manual (choose per
 finding)"** for scans run from the web console — this is informational only,
 scanning itself never calls an AI provider.
 
+Below the scans, **Claude Agent queue** lists every finding waiting for (or
+being verified by) `kodand agent`, oldest first, with its project and scan. Tick
+rows and **Remove selected**, remove one with ✕, or **Clear queue**. A finding
+being verified when you remove it has its Claude run stopped within seconds.
+
 ### Custom templates
 Add organization-specific detection rules (global, apply to every project).
 Needs an `id`, at least one literal **match** or **regex** indicator,
@@ -203,6 +209,13 @@ Every finding in a report can be:
 - Sent to **Claude Agent** — your own Claude Code session verifies it with
   your own Claude login, no API key; see
   [Claude Agent](#claude-agent--verifying-from-the-web-console).
+
+Comments that state a verdict ("Verdict: True positive", "False positive …",
+"Needs more context …") get a coloured badge, and a **Mark as …** button that
+sets the finding's status from it in one click — never automatically. The report
+has a verdict filter (each finding's latest verdict) next to the severity filter.
+A False-positive verdict also offers **Suppress…**, see
+[Suppressions](#8-suppressions-kodandyml).
 
 ## 6. MCP server — scanning from an AI agent
 
@@ -333,8 +346,19 @@ history. Jobs can only be queued from the machine running the console, even with
 **When a job doesn't finish.** If Claude exits without a verdict, fails (for
 example you're signed out of Claude Code), or runs past the time limit, the job
 is marked failed with the reason. If the worker itself is killed mid-run, the
-job goes back to the queue, and after 3 such attempts it's marked failed. Failed
-and cancelled jobs can be retried from Settings → Claude Agent.
+job goes back to the queue, and after 3 such attempts it's marked failed.
+Deleting a project or scan, or turning off its MCP sharing, cancels its queued
+findings.
+
+**Faster, and in the background.** `kodand agent --parallel 3` verifies up to 3
+findings at once (each uses your plan's usage). `kodand agent --install-service
+--parallel 2` runs the worker as a systemd user service on Linux, so no terminal
+needs to stay open (`journalctl --user -u kodand-agent -f` for its log,
+`--uninstall-service` to remove it; `install.sh` restarts it on upgrade).
+
+**Usage.** Settings → Claude Agent shows the tokens and API-equivalent cost of
+Claude Agent runs (last 24 h and all time). On a Claude plan that counts toward
+your usage limits; it isn't billed. Finished job records are pruned after 30 days.
 
 ## 7. Custom templates
 
@@ -372,6 +396,14 @@ Selectors: `rule` (template id), `category`, `path` (glob), or `finding`
 (finding id) — combine as needed. `expires` is optional; an expired
 suppression automatically reactivates the finding.
 
+**From the web console.** On a False-positive verdict in a report, **Suppress…**
+saves a suppression to the *project* — this finding only, the rule in this file,
+the rule under this folder, or the rule anywhere in the project — with a reason
+and optional expiry. It's kept in Kodand's workspace (never written into your
+source), applies to every later scan of the project alongside the repo's own
+`.kodand.yml`, and marks the matching findings of the current scan Suppressed at
+once. The project page lists them, with delete and **Copy as .kodand.yml**.
+
 ## 9. Report formats
 
 | Format | Command / where |
@@ -389,6 +421,15 @@ Everything lives under `~/.kodand/` by default (override with the
 reports, review overrides (statuses/comments), custom templates, and AI/MCP
 settings (including API keys — stored locally, never sent anywhere except the
 provider you explicitly configure).
+
+**Job files** are the copies of scanned source each scan keeps so findings can
+be reviewed in the files. They take most of the space. Settings → **Job files**
+lists them per scan (size, file count; click a row for its files), with a
+**Keep** tag and **Delete**, and a retention period: job files of scans older than
+N days are deleted at the hourly cleanup (or **Clean up now**) — never findings,
+reports, comments or verdicts, never scans tagged Keep, and not while Claude
+Agent still has jobs queued for the scan. Retention is off until you set it. The
+Projects page graphs total job-file storage over time.
 
 The workspace directory is created owner-only (`700`), and Kodand tightens it
 back to that if it finds it readable by others: it holds the password hash,

@@ -237,6 +237,16 @@ thead th{background:var(--surface-2);text-transform:uppercase;font-size:.7rem;le
           </div>
         </div>
         <div id="proj-list"></div>
+
+        <div class="panel" id="storage-panel" style="margin-top:22px">
+          <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap">
+            <h2 style="margin:0">Job files storage</h2>
+            <div><span id="storage-now" class="small muted"></span> <a href="#tab=settings" class="small" onclick="setTimeout(()=>document.getElementById('jobfiles-panel').scrollIntoView(),300)">Manage →</a></div>
+          </div>
+          <div class="small muted" style="margin:4px 0 10px">Scanned source files Kodand keeps so findings can be reviewed in place.</div>
+          <div id="storage-chart" style="position:relative"></div>
+          <details style="margin-top:8px"><summary class="small muted" style="cursor:pointer">View as table</summary><div id="storage-table"></div></details>
+        </div>
       </div>
       <div id="view-project" class="hide">
         <div class="topbar">
@@ -484,6 +494,18 @@ thead th{background:var(--surface-2);text-transform:uppercase;font-size:.7rem;le
           <div id="agent-usage" class="small muted">–</div>
         </div>
       </div>
+
+      <div class="panel" id="jobfiles-panel">
+        <h2>Job files</h2>
+        <div class="small muted" style="margin-bottom:16px">The scanned source each scan keeps so you can review findings in the files themselves. Deleting job files removes only those copies: findings, reports, comments and verdicts stay. Scans tagged <b>Keep</b> are never deleted automatically; untag one and it's deleted at the next hourly cleanup if it's already past the retention period. Scans Claude Agent is still verifying are skipped until it's done.</div>
+        <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-bottom:14px">
+          <div class="f" style="margin:0"><label>Keep job files for (days)</label><input id="jf-days" type="number" min="1" max="3650" placeholder="Forever" style="width:150px"></div>
+          <button class="run" onclick="saveRetention()">Save</button>
+          <button class="ghostbtn" onclick="cleanupNow()">Clean up now</button>
+          <span id="jf-total" class="small muted" style="margin-left:auto"></span>
+        </div>
+        <div id="jf-list" class="small muted">–</div>
+      </div>
     </div>
 
     <!-- ABOUT -->
@@ -562,7 +584,7 @@ function activateTab(name){
   TABS.forEach(n=>document.getElementById('tab-'+n).classList.toggle('hide',n!==name));
   if(name==='projects')showProjects();
   if(name==='templates')loadTemplates();
-  if(name==='settings'){loadAiSettings();loadMcpSettings();loadAgentPanel();}
+  if(name==='settings'){loadAiSettings();loadMcpSettings();loadAgentPanel();loadJobFiles();}
   clearInterval(window.AGENT_PANEL_TIMER);
   if(name==='settings')window.AGENT_PANEL_TIMER=setInterval(loadAgentPanel,10000);
   if(name==='activity'){closeActivityDetail();}
@@ -943,7 +965,98 @@ document.getElementById('scan-archive').addEventListener('change',e=>
   onUploadPicked(e,'scan-files',f=>f[0].name));
 
 let PROJECTS={};
+function fmtBytes(n){n=n||0;return n>=1073741824?(n/1073741824).toFixed(2)+' GB':n>=1048576?(n/1048576).toFixed(1)+' MB':n>=1024?Math.round(n/1024)+' KB':n+' B';}
+function fmtDay(ts){return ts?new Date(ts).toLocaleDateString(undefined,{day:'numeric',month:'short',year:'numeric'}):'';}
+const JF_OPEN=new Set();
+async function loadJobFiles(){
+  let d;try{d=await api('/api/storage');}catch(e){return;}
+  const days=document.getElementById('jf-days');if(document.activeElement!==days)days.value=d.retention_days||'';
+  document.getElementById('jf-total').textContent=`${fmtBytes(d.total_bytes)} across ${d.scans.length} scan${d.scans.length===1?'':'s'}`;
+  const el=document.getElementById('jf-list');
+  if(!d.scans.length){el.innerHTML='<div class="panel empty">No job files kept right now.</div>';return;}
+  el.innerHTML=`<table><thead><tr><th></th><th>Project / scan</th><th>Created</th><th>Files</th><th>Size</th><th>Auto-delete</th><th>Keep</th><th></th></tr></thead><tbody>${d.scans.map(s=>{
+    const key=s.project_id+'/'+s.scan_id;
+    const when=s.keep?'Never (kept)':s.agent_jobs_open?'Waiting for Claude Agent':s.deletes_at?fmtDay(s.deletes_at):'Never (retention off)';
+    return `<tr class="jf-row" style="cursor:pointer" onclick="toggleJobFiles('${s.project_id}','${s.scan_id}')">
+      <td style="width:20px">${JF_OPEN.has(key)?'▾':'▸'}</td>
+      <td>${escHtml(s.project_name||s.project_id)}<div class="small muted">${escHtml(s.label)}</div></td>
+      <td>${fmtDay(s.created)}</td><td>${s.files}</td><td>${fmtBytes(s.bytes)}</td><td>${escHtml(when)}</td>
+      <td onclick="event.stopPropagation()"><label class="tog" style="margin:0"><input type="checkbox" ${s.keep?'checked':''} onchange="setKeep('${s.project_id}','${s.scan_id}',this.checked)"><span class="sw"></span></label></td>
+      <td onclick="event.stopPropagation()"><button class="danger" onclick="deleteJobFiles('${s.project_id}','${s.scan_id}')">Delete</button></td></tr>
+      <tr id="jf-files-${s.scan_id}" class="${JF_OPEN.has(key)?'':'hide'}"><td></td><td colspan="7"><div class="small muted">Loading…</div></td></tr>`;}).join('')}</tbody></table>`;
+  for(const key of JF_OPEN){const [p,sid]=key.split('/');renderJobFileList(p,sid);}
+}
+async function renderJobFileList(pid,sid){
+  const row=document.getElementById('jf-files-'+sid);if(!row)return;
+  try{
+    const files=await api(`/api/projects/${encodeURIComponent(pid)}/scans/${encodeURIComponent(sid)}/files`);
+    const viewer=p=>`/static/files.html?project=${encodeURIComponent(pid)}&scan=${encodeURIComponent(sid)}&path=${encodeURIComponent(p)}`;
+    row.children[1].innerHTML=`<div style="max-height:260px;overflow:auto">${files.map(f=>`<div style="display:flex;justify-content:space-between;gap:12px;padding:2px 0"><a href="${viewer(f.path)}" target="_blank" rel="noopener" style="font-family:'IBM Plex Mono',monospace;font-size:12px">${escHtml(f.path)}</a><span class="small muted">${fmtBytes(f.size)}</span></div>`).join('')}</div>`;
+  }catch(e){row.children[1].textContent=e.message;}
+}
+function toggleJobFiles(pid,sid){const key=pid+'/'+sid;JF_OPEN.has(key)?JF_OPEN.delete(key):JF_OPEN.add(key);loadJobFiles();}
+async function setKeep(pid,sid,keep){
+  try{await api(`/api/projects/${encodeURIComponent(pid)}/scans/${encodeURIComponent(sid)}/keep`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({keep})});
+    toast(keep?'Kept — never deleted automatically':'Keep removed — deleted at the next cleanup if past the retention period');loadJobFiles();}
+  catch(e){toast(e.message,false);loadJobFiles();}
+}
+async function deleteJobFiles(pid,sid){
+  if(!await appConfirm('Delete this scan’s job files? Findings, the report, comments and verdicts stay; the Files viewer and Claude Agent can no longer read the source.'))return;
+  try{await api(`/api/projects/${encodeURIComponent(pid)}/scans/${encodeURIComponent(sid)}/target`,{method:'DELETE'});toast('Job files deleted');JF_OPEN.delete(pid+'/'+sid);loadJobFiles();}
+  catch(e){toast(e.message,false);}
+}
+async function saveRetention(){
+  const v=document.getElementById('jf-days').value.trim();
+  try{const r=await api('/api/settings/storage',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({retention_days:v||null})});
+    toast(r.retention_days?`Job files kept for ${r.retention_days} days — older ones are deleted at the next hourly cleanup`:'Job files kept forever');loadJobFiles();}
+  catch(e){toast(e.message,false);}
+}
+async function cleanupNow(){
+  try{const r=await api('/api/storage/cleanup',{method:'POST'});const n=r.deleted.length,freed=r.deleted.reduce((a,x)=>a+x.bytes,0);
+    toast(n?`Deleted job files of ${n} scan${n===1?'':'s'} — ${fmtBytes(freed)} freed`:'Nothing past the retention period');loadJobFiles();}
+  catch(e){toast(e.message,false);}
+}
+
+// Job files storage graph (Projects page): one series over time, so a single-hue area with no legend;
+// crosshair + tooltip on hover, and the same numbers in a table underneath.
+async function loadStorageChart(){
+  const box=document.getElementById('storage-chart');if(!box)return;
+  let d;try{d=await api('/api/storage');}catch(e){return;}
+  document.getElementById('storage-now').textContent=`${fmtBytes(d.total_bytes)} now · ${d.scans.length} scan${d.scans.length===1?'':'s'}`;
+  const pts=(d.history||[]).map(p=>({t:new Date(p.t).getTime(),b:p.bytes,raw:p}));
+  document.getElementById('storage-table').innerHTML=pts.length?`<table><thead><tr><th>When</th><th>Job files</th><th>Scans</th></tr></thead><tbody>${pts.slice().reverse().map(p=>`<tr><td>${new Date(p.t).toLocaleString()}</td><td>${fmtBytes(p.b)}</td><td>${p.raw.scans}</td></tr>`).join('')}</tbody></table>`:'';
+  if(pts.length<2){box.innerHTML='<div class="small muted" style="padding:18px 0">The graph fills in as scans add or remove job files (a point is recorded on every change and hourly).</div>';return;}
+  const W=Math.max(320,box.clientWidth||600),H=170,L=64,R=12,T=10,B=26;
+  const t0=pts[0].t,t1=pts[pts.length-1].t,span=Math.max(1,t1-t0);
+  const max=Math.max(...pts.map(p=>p.b))||1;
+  // round gridline steps in the same binary units fmtBytes prints (…, 20 MB, 50 MB, 100 MB, 200 MB, …)
+  const step=[1,2,5,10,20,50,100,200,500].flatMap(m=>[1,1024,1048576,1073741824].map(u=>m*u)).sort((a,b)=>a-b).find(s=>max/s<=4)||max/4;
+  const top=Math.ceil(max/step)*step;
+  const x=t=>L+(t-t0)/span*(W-L-R), y=b=>T+(1-b/top)*(H-T-B);
+  const line=pts.map((p,i)=>`${i?'L':'M'}${x(p.t).toFixed(1)},${y(p.b).toFixed(1)}`).join('');
+  const area=`${line}L${x(t1).toFixed(1)},${y(0)}L${x(t0).toFixed(1)},${y(0)}Z`;
+  const grid=[];for(let v=0;v<=top+1;v+=step)grid.push(`<line x1="${L}" x2="${W-R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--border-soft)" stroke-width="1"/><text x="${L-8}" y="${y(v)+4}" text-anchor="end" font-size="11" fill="var(--text-faint)">${fmtBytes(v).replace(/\.0+ /,' ')}</text>`);
+  box.innerHTML=`<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="Job files storage over time, now ${fmtBytes(pts[pts.length-1].b)}" style="display:block;max-width:100%">
+    ${grid.join('')}
+    <path d="${area}" fill="var(--accent)" fill-opacity=".14"/><path d="${line}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>
+    <text x="${L}" y="${H-6}" font-size="11" fill="var(--text-faint)">${fmtDay(new Date(t0).toISOString())}</text>
+    <text x="${W-R}" y="${H-6}" font-size="11" fill="var(--text-faint)" text-anchor="end">${fmtDay(new Date(t1).toISOString())}</text>
+    <g id="sc-hover" style="display:none"><line id="sc-x" y1="${T}" y2="${H-B}" stroke="var(--text-secondary)" stroke-width="1" stroke-dasharray="3 3"/><circle id="sc-dot" r="4.5" fill="var(--accent)" stroke="var(--surface)" stroke-width="2"/></g>
+    <rect x="${L}" y="${T}" width="${W-L-R}" height="${H-T-B}" fill="transparent" id="sc-hit"/></svg>
+    <div id="sc-tip" class="small" style="display:none;position:absolute;pointer-events:none;background:var(--surface-2);border:1px solid var(--border);border-radius:8px;padding:6px 9px;white-space:nowrap"></div>`;
+  const hit=document.getElementById('sc-hit'),g=document.getElementById('sc-hover'),tip=document.getElementById('sc-tip');
+  hit.addEventListener('mousemove',e=>{
+    const r=hit.ownerSVGElement.getBoundingClientRect(),mx=e.clientX-r.left;
+    const p=pts.reduce((a,c)=>Math.abs(x(c.t)-mx)<Math.abs(x(a.t)-mx)?c:a);
+    g.style.display='';document.getElementById('sc-x').setAttribute('x1',x(p.t));document.getElementById('sc-x').setAttribute('x2',x(p.t));
+    const dot=document.getElementById('sc-dot');dot.setAttribute('cx',x(p.t));dot.setAttribute('cy',y(p.b));
+    tip.style.display='';tip.innerHTML=`<b>${fmtBytes(p.b)}</b> · ${p.raw.scans} scan${p.raw.scans===1?'':'s'}<div class="muted">${new Date(p.t).toLocaleString()}</div>`;
+    tip.style.left=Math.min(x(p.t)+10,W-tip.offsetWidth-4)+'px';tip.style.top=Math.max(0,y(p.b)-44)+'px';
+  });
+  hit.addEventListener('mouseleave',()=>{g.style.display='none';tip.style.display='none';});
+}
 async function loadProjects(){
+  loadStorageChart();
   const ps=await api('/api/projects');const el=document.getElementById('proj-list');
   if(!ps.length){el.innerHTML='<div class="panel empty">No projects yet. Create one above to get started.</div>';return;}
   PROJECTS=Object.fromEntries(ps.map(p=>[p.id,p]));

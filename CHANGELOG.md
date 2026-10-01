@@ -83,6 +83,19 @@ Initial release.
 - Settings → Claude Agent shows whether the worker is running, with recent jobs
   you can cancel or retry.
 
+### Review workflow, storage and Claude Agent operations
+- Verdict badges with one-click "Mark as …", a verdict filter in reports, and
+  re-verify choices (all / without a verdict / current False positives).
+- Suppress a False-positive verdict into a per-project suppression (finding,
+  rule in file, rule under folder, rule anywhere), applied to later scans and
+  marked in the current one at once.
+- kodand agent --parallel N and --install-service; Claude usage per job and in
+  total; a Claude Agent queue in Live Scans with remove one / selected / all, and
+  runs stopped when their finding is removed; queued work cancelled when its
+  project or scan is deleted or unshared.
+- Job files: per-scan sizes and file lists, a Keep tag, manual delete, an
+  optional retention period applied hourly, and a storage graph.
+
 ### Security
 - Project and scan IDs are validated on every request, so neither the console nor
   an MCP client can reach outside a shared project.

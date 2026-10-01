@@ -31,8 +31,21 @@ MAINTENANCE_INTERVAL = 3600
 
 
 def run_maintenance() -> dict:
-    """Housekeeping the console does in the background: old finished Claude Agent job records."""
-    return {"agent_jobs_pruned": store.prune_agent_jobs()}
+    """Housekeeping the console does in the background: old finished Claude Agent job records, job files
+    past their retention period, and a point for the storage graph."""
+    out = {"agent_jobs_pruned": store.prune_agent_jobs(), "job_files_deleted": store.purge_expired_job_files()}
+    store.record_storage_snapshot()
+    return out
+
+
+def _snapshot_storage_soon() -> None:
+    """Record the new storage total after a change, off the request (sizing walks every scan's files)."""
+    def run():
+        try:
+            store.record_storage_snapshot()
+        except Exception:  # noqa: BLE001 — the graph just misses a point; the next one corrects it
+            pass
+    threading.Thread(target=run, daemon=True).start()
 
 
 def _maintenance_loop(stop: threading.Event) -> None:
@@ -277,6 +290,7 @@ def api_create_project(payload: dict = Body(...)):
 def api_delete_project(pid: str):
     if not store.delete_project(pid):
         raise HTTPException(404, "Project not found")
+    _snapshot_storage_soon()
     return {"ok": True}
 
 
@@ -438,6 +452,7 @@ async def api_create_scan(pid: str, request: Request):
             "source": source, "use_custom": bool(use_custom), **result}
     store.save_scan_meta(pid, sid, meta)
     store.finish_scan_progress(pid, sid, "complete")
+    _snapshot_storage_soon()
     if agent_verify:
         # the scan itself never waits on Claude: jobs are queued and run whenever the agent session is up
         try:
@@ -479,6 +494,7 @@ def api_delete_scan_activity(pid: str, sid: str):
 def api_delete_scan(pid: str, sid: str):
     if not store.delete_scan(pid, sid):
         raise HTTPException(404, "Scan not found")
+    _snapshot_storage_soon()
     return {"ok": True}
 
 
@@ -535,6 +551,7 @@ def api_scan_file_content(pid: str, sid: str, path: str):
 def api_delete_scan_target(pid: str, sid: str):
     if not store.delete_scan_target(pid, sid):
         raise HTTPException(404, "Scan source not found (already deleted?)")
+    _snapshot_storage_soon()
     return {"ok": True}
 
 
@@ -800,6 +817,42 @@ def api_register_mcp_client(payload: dict = Body(...)):
     if proc.returncode != 0:
         raise HTTPException(500, f"claude mcp add failed: {(proc.stderr or proc.stdout).strip()[:500]}")
     return {"ok": True, "output": proc.stdout.strip()}
+
+
+@app.get("/api/storage")
+def api_storage():
+    """Job files: every scan still keeping its scanned source, with sizes, Keep tags and when retention
+    deletes them, plus the size history for the storage graph."""
+    scans = store.list_job_files()
+    return {**store.load_storage_settings(), "total_bytes": sum(s["bytes"] for s in scans),
+            "scans": scans, "history": store.read_storage_history()}
+
+
+@app.put("/api/settings/storage")
+def api_save_storage_settings(payload: dict = Body(...)):
+    try:
+        return store.save_storage_settings(payload)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.post("/api/storage/cleanup")
+def api_storage_cleanup():
+    """Apply the retention period now instead of at the next hourly round."""
+    deleted = store.purge_expired_job_files()
+    store.record_storage_snapshot()
+    return {"deleted": deleted}
+
+
+@app.put("/api/projects/{pid}/scans/{sid}/keep")
+def api_keep_job_files(pid: str, sid: str, payload: dict = Body(...)):
+    """Tag (or untag) a scan's job files Keep: kept ones are never auto-deleted; untagged, they're
+    deleted at the next cleanup round if already past the retention period."""
+    try:
+        meta = store.set_keep_job_files(pid, sid, bool((payload or {}).get("keep")))
+    except FileNotFoundError:
+        raise HTTPException(404, "Scan not found")
+    return {"keep": meta["keep_files"]}
 
 
 @app.get("/api/templates")
