@@ -118,6 +118,8 @@ tbody tr:hover{background:rgba(255,255,255,.03)}td ul{margin:0;padding-left:18px
 .review-panel input.rv-comment-input,.review-panel input.rv-chat-input{flex:1;min-width:200px;background:rgba(0,0,0,.28);border:1px solid rgba(255,255,255,.14);border-radius:8px;color:var(--txt);padding:8px 10px;font:inherit}
 .review-panel button{cursor:pointer;border:1px solid #8ab4ff;background:#8ab4ff;color:#08101f;font-weight:700;padding:7px 14px;border-radius:8px;font-size:.82rem}
 .review-panel button.rv-comment-btn{background:transparent;color:var(--txt);border-color:rgba(255,255,255,.14)}
+.review-panel button.rv-cli-btn{background:transparent;color:#c4b5fd;border-color:#a78bfa88}
+.review-panel button:disabled{opacity:.45;cursor:not-allowed}
 .review-panel button.sm{padding:4px 10px;font-size:.72rem;border-radius:6px}
 .review-panel button.rv-c-del{background:transparent;color:#fda4af;border-color:#f4547066}
 .review-panel button.rv-c-edit,.review-panel button.rv-c-apply,.review-panel button.rv-c-suppress{background:transparent;color:var(--txt);border-color:rgba(255,255,255,.14)}
@@ -451,6 +453,24 @@ document.addEventListener('DOMContentLoaded',()=>{
     });
   }
 
+  // The API-key buttons need a configured provider and Ask AI-CLI needs `claude` on PATH. Grey out whichever
+  // can't work right now, with the reason as its tooltip. If availability can't be fetched, leave all enabled.
+  let AI_AVAIL=null;
+  const API_BTNS='.rv-ai-btn:not(.rv-claude-agent-btn),.rv-chat-btn', CLI_BTN='.rv-cli-btn';
+  function applyAvailability(panel){
+    if(!AI_AVAIL)return;
+    const set=(sel,ok,why)=>panel.querySelectorAll(sel).forEach(b=>{
+      if(b.dataset.title===undefined)b.dataset.title=b.title;
+      b.dataset.unavail=ok?'':'1'; b.disabled=!ok; b.title=ok?b.dataset.title:why;
+    });
+    set(API_BTNS,AI_AVAIL.api.available,AI_AVAIL.api.reason+' — set it up in Settings → AI assistant.');
+    set(CLI_BTN,AI_AVAIL.cli.available,AI_AVAIL.cli.reason);
+  }
+  // while one AI call runs, block the others in the panel (they share one status badge)
+  function setAiBusy(panel,busy){
+    panel.querySelectorAll(API_BTNS+','+CLI_BTN).forEach(b=>{b.disabled=busy||b.dataset.unavail==='1';});
+  }
+
   document.addEventListener('DOMContentLoaded', async ()=>{
     const wrap=document.querySelector('.wrap');
     if(wrap){
@@ -505,7 +525,24 @@ document.addEventListener('DOMContentLoaded',()=>{
           appAlert(err.message);
         }
       });
+      panel.querySelector('.rv-cli-btn').addEventListener('click', async ()=>{
+        const input=panel.querySelector('.rv-chat-input'), text=input.value.trim();
+        const badge=panel.querySelector('.rv-ai-status'); badge.className='rv-ai-status show testing'; badge.textContent=text?'Thinking (CLI)…':'Reviewing (CLI)…';
+        setAiBusy(panel,true);
+        try{
+          await api(`${base}/findings/${fid}/cli-ask`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:text})});
+          input.value=''; await refreshComments(panel);
+          badge.className='rv-ai-status show success'; badge.textContent='Complete';
+          setTimeout(()=>{badge.className='rv-ai-status';badge.textContent='';},4000);
+        }catch(err){
+          await refreshComments(panel); // a question is saved even if the answer failed
+          badge.className='rv-ai-status show failed'; badge.textContent='Failed';
+          appAlert(err.message);
+        }finally{setAiBusy(panel,false);}
+      });
     });
+    try{AI_AVAIL=await api('/api/ai/availability');}catch(e){AI_AVAIL=null;}
+    document.querySelectorAll('.review-panel').forEach(applyAvailability);
     recomputeSummary(review);
     updateVerdictFilter();
     // pick up jobs queued earlier (e.g. by auto-verify on this scan) so their progress shows too
@@ -663,6 +700,7 @@ def write_html(a, p):
       <div class="row" style="margin-top:8px">
         <input type="text" class="rv-chat-input" placeholder="Ask AI a follow-up about this finding…">
         <button type="button" class="rv-chat-btn"><svg class="rv-ai-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.5l1.7 5 5 1.7-5 1.7-1.7 5-1.7-5-5-1.7 5-1.7 1.7-5z"/><path d="M19.3 13l.9 2.6 2.6.9-2.6.9-.9 2.6-.9-2.6-2.6-.9 2.6-.9.9-2.6z"/></svg>Ask AI</button>
+        <button type="button" class="rv-cli-btn" title="Answer with your own Claude Code (the claude command) instead of an API key. Type a question, or leave the box empty to review the finding"><svg class="rv-ai-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.5l1.7 5 5 1.7-5 1.7-1.7 5-1.7-5-5-1.7 5-1.7 1.7-5z"/><path d="M19.3 13l.9 2.6 2.6.9-2.6.9-.9 2.6-.9-2.6-2.6-.9 2.6-.9.9-2.6z"/></svg>Ask AI-CLI</button>
       </div>
     </div>
   </div>

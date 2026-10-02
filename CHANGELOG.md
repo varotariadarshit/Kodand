@@ -65,6 +65,15 @@ Initial release.
 - A project must be explicitly shared with MCP clients before any tool can see it.
 - A `kodand-mcp-scan` Claude Code skill that drives a scan end to end.
 
+### Ask AI-CLI
+- A finding's **Ask AI-CLI** button answers a question (or, with the box empty,
+  reviews the finding) through your own `claude -p` and Claude login, with no
+  API key and no `kodand agent` worker. It runs with no tools and no MCP
+  servers; the prompt, with the affected files and earlier comments, goes in on
+  stdin. Loopback-only like Claude Agent, two runs at a time, 2-minute limit.
+- The AI buttons now grey out, with the reason as a tooltip, when they can't
+  work (no API key; `claude` not on PATH): `GET /api/ai/availability`.
+
 ### Claude Agent (`kodand agent`)
 - Verify findings from the web console with your own Claude Code and Claude
   login, no API key: `kodand agent` is a worker you leave running in a

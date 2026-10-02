@@ -84,7 +84,9 @@ patterns, it doesn't prove exploitability.
 - **AI-assisted review** — one-click AI Review (ChatGPT, Claude, Gemini, or any
   custom OpenAI-compatible endpoint) using the full affected file rather than
   just the matched excerpt, able to open the skill's other files when it needs
-  more context, and follow-up chat on any finding.
+  more context, and follow-up chat on any finding. **Ask AI-CLI** gives the same
+  answers through your own Claude Code login instead of an API key; each AI
+  button greys out when it isn't set up.
 - **MCP server** (`kodand mcp`) — scan, list findings, read scanned files, and
   verify findings directly from an MCP-capable agent's terminal session,
   without routing through a separately configured AI provider.
@@ -275,7 +277,7 @@ file/line in the Files viewer, highlighted.
 
 Each finding can be marked **Pending Review / True Positive / False Positive
 / Remediated / Suppressed**, annotated with comments, sent for a one-click
-**AI Review**, and followed up with AI chat. Full walkthrough of every tab and
+**AI Review**, and followed up with AI chat or **Ask AI-CLI**. Full walkthrough of every tab and
 the review workflow is in the [user guide](https://github.com/varotariadarshit/Kodand/blob/master/USER_GUIDE.md).
 
 Workspace defaults to `~/.kodand/` (override with `KODAND_HOME`).

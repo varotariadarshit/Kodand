@@ -22,7 +22,7 @@ from kodand.core.repository import copy_snapshot, extract_archive_into, is_archi
 from kodand.exceptions import InvalidRepositoryError
 from kodand.models.analysis import RepositoryAnalysis
 from kodand.reporting import write_html
-from kodand.webui import ai_review, store
+from kodand.webui import ai_review, cli_ai, store
 from kodand.webui.scan_service import MAX_SCAN_FILES, load_builtin_templates, run_template_scan
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -745,6 +745,43 @@ def api_ai_chat(pid: str, sid: str, finding_id: str, payload: dict = Body(...)):
         raise HTTPException(502, f"AI chat failed ({provider}): {e}")
     ai_comment = store.add_comment(pid, sid, finding_id, reply, author=f"AI Assistant ({provider})", kind="ai")
     return {"user_comment": user_comment, "ai_comment": ai_comment}
+
+
+@app.post("/api/projects/{pid}/scans/{sid}/findings/{finding_id}/cli-ask")
+def api_cli_ask(pid: str, sid: str, finding_id: str, request: Request, payload: dict = Body(default={})):
+    """Ask AI-CLI: answer through the user's own `claude` CLI instead of an API key. With a message it
+    continues the discussion (like ai-chat); without one it reviews the finding (like ai-review)."""
+    _require_local_agent_request(request)  # it spends the host user's Claude plan, like Claude Agent
+    message = ((payload or {}).get("message") or "").strip()
+    if not cli_ai.cli_available():
+        raise HTTPException(400, cli_ai.NOT_FOUND_MESSAGE)
+    try:
+        finding = store.find_finding(pid, sid, finding_id)
+        prior_comments = store.get_review(pid, sid)[finding_id]["comments"]
+    except FileNotFoundError:
+        raise HTTPException(404, "Finding or scan not found")
+    file_contents = store.read_scan_files(pid, sid, finding.get("affected_files", []))
+    # the question is saved before the call, so it survives a failed answer (as with ai-chat)
+    user_comment = store.add_comment(pid, sid, finding_id, message, author="You", kind="user") if message else None
+    try:
+        reply = (cli_ai.cli_chat_reply(finding, prior_comments, message, file_contents) if message
+                 else cli_ai.cli_review(finding, file_contents))
+    except cli_ai.CliNotFoundError as e:
+        raise HTTPException(400, str(e))
+    except cli_ai.CliBusyError as e:
+        raise HTTPException(429, str(e))
+    except cli_ai.CliTimeout as e:
+        raise HTTPException(504, str(e))
+    except Exception as e:
+        raise HTTPException(502, f"Ask AI-CLI failed: {e}")
+    ai_comment = store.add_comment(pid, sid, finding_id, reply, author="AI Assistant (Claude CLI)", kind="ai")
+    return {"user_comment": user_comment, "ai_comment": ai_comment}
+
+
+@app.get("/api/ai/availability")
+def api_ai_availability():
+    """Which AI paths work right now, so the report can grey out the ones that can't."""
+    return cli_ai.availability()
 
 
 @app.get("/api/settings/ai")

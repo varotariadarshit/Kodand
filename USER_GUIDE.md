@@ -171,12 +171,13 @@ category (same as `kodand bench`). Leave the corpus path blank to use the
 packaged one.
 
 ### Settings
-**AI assistant settings** configure the provider used by the **AI Review** button on findings:
+**AI assistant settings** configure the provider used by the **AI Review** and **Ask AI** buttons on findings:
 ChatGPT (OpenAI), Claude (Anthropic), Gemini (Google), or a **Custom** OpenAI-
 compatible endpoint (this is how you'd point Kodand at OpenRouter, a local
 vLLM/Ollama server, etc.). Includes a **Test connection** check. API keys are
 stored locally in the workspace and only ever sent to the provider you
-configure — see [§10](#10-workspace--data-storage).
+configure — see [§10](#10-workspace--data-storage). Below the intro, a line shows
+whether Claude Code was found on this machine, which is all **Ask AI-CLI** needs (no API key).
 
 This is also where **MCP Server** setup lives:
 - Check the **data-sharing acknowledgment** box (required before any project
@@ -211,6 +212,19 @@ Every finding in a report can be:
 - Followed up with an **AI chat** — ask the AI assistant a free-form question
   about a specific finding, with the same access to the scanned files; the
   exchange is recorded as comments too.
+- Asked through **Ask AI-CLI** — the same question-and-answer as the AI chat, but
+  answered by your own Claude Code (`claude -p`) and its login instead of an
+  API key. Type a question in the box and press **Ask AI-CLI**, or leave the box
+  empty to have it review the finding. It runs once and right away (no
+  `kodand agent` worker needed), sees the full affected file(s) and the earlier
+  comments, but has no tools of its own, so it can't open other files. Answers
+  are recorded as comments, with the same verdict badge. The AI buttons are
+  greyed out with a tooltip when they can't work: **AI Review / Ask AI** until
+  a provider has an API key, **Ask AI-CLI** until `claude` is on the PATH. Like
+  Claude Agent it only accepts requests from the machine running the console
+  (unless `KODAND_AGENT_ALLOW_REMOTE=1`), at most two answers run at once, and
+  each has a 2-minute limit. The finding's files are sent to Anthropic under
+  your Claude login, as with Claude Agent.
 - Sent to **Claude Agent** — your own Claude Code session verifies it with
   your own Claude login, no API key; see
   [Claude Agent](#claude-agent--verifying-from-the-web-console).
