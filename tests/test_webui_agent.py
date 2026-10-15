@@ -166,3 +166,9 @@ def test_queue_view_lists_open_jobs_oldest_first_with_names(tmp_path):
     assert jobs[0]["project_name"] == "Agent" and jobs[0]["scan_label"] == "Queue demo"
     client.post("/api/agent/jobs/cancel", json={"ids": [jobs[0]["id"]]})
     assert len(client.get("/api/agent/jobs", params={"open": "true"}).json()) == len(jobs) - 1
+
+
+def test_sidebar_shows_claude_agent_status_and_mcp_active_needs_a_live_session():
+    page = client.get("/").text
+    assert 'id="m-agent"' in page and "pollAgentStatus" in page
+    assert "if(s.active&&s.connected)return {short:'● Active'" in page

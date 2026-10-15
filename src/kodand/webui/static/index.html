@@ -222,6 +222,7 @@ thead th{background:var(--surface-2);text-transform:uppercase;font-size:.7rem;le
     <div class="build-info">
       <div class="row"><span>Version</span><b id="m-ver">–</b></div>
       <div class="row"><span>MCP</span><b id="m-mcp">–</b></div>
+      <div class="row"><span>Claude Agent</span><b id="m-agent">–</b></div>
       <div class="row"><span>Session</span><b><a class="logout-link" onclick="logout()">Log out</a></b></div>
     </div>
   </aside>
@@ -601,7 +602,9 @@ function fmtDuration(sec){
 }
 function mcpLastCall(s){return s.tool?`last call: ${s.tool}${s.project?' on '+s.project:''}`:'no tool calls yet';}
 function mcpState(s){
-  if(s.active)return {short:'● Active',long:`● Active — ${s.tool||'?'}${s.project?' on '+s.project:''}, just now`,color:'var(--green)',title:mcpLastCall(s)};
+  // a call in the last 45 s only means "Active" while a session is still connected — otherwise a just-closed
+  // session would keep reading Active until that window ran out
+  if(s.active&&s.connected)return {short:'● Active',long:`● Active — ${s.tool||'?'}${s.project?' on '+s.project:''}, just now`,color:'var(--green)',title:mcpLastCall(s)};
   if(s.connected){const idle=fmtDuration(s.idle_seconds),n=s.servers>1?` (${s.servers} sessions)`:'';
     return {short:`● Connected · idle ${idle}`,long:`● Connected${n} — idle for ${idle}, ${mcpLastCall(s)}`,color:'var(--green)',title:`Idle for ${idle} · ${mcpLastCall(s)}`};}
   if(s.seconds_ago!=null){const ago=fmtDuration(s.seconds_ago);
@@ -617,6 +620,18 @@ async function pollMcpStatus(){
   }catch(e){}
 }
 pollMcpStatus();setInterval(pollMcpStatus,10000);
+// Claude Agent worker (`kodand agent`, in a terminal or as a service): connected = its heartbeat is live
+async function pollAgentStatus(){
+  try{
+    const s=await api('/api/agent/status'),el=document.getElementById('m-agent');if(!el)return;
+    const how=`${s.parallel>1?`, ${s.parallel} at a time`:''}${s.service?', background service':''}`;
+    if(s.state==='offline'){el.textContent='○ Disconnected';el.style.color='var(--text-faint)';
+      el.title=`No kodand agent worker running${s.queued?` — ${s.queued} finding${s.queued===1?'':'s'} waiting`:''}. Start it with: kodand agent`;}
+    else{el.textContent=s.state==='busy'?`● Connected · verifying ${s.running}`:'● Connected';el.style.color='var(--green)';
+      el.title=`kodand agent worker running${how} · ${s.running} verifying, ${s.queued} queued`;}
+  }catch(e){}
+}
+pollAgentStatus();setInterval(pollAgentStatus,10000);
 
 const PIPELINE_STAGES=[
   {key:'starting',label:'Ingest',svg:'<path d="M12 3v11M7 9l5 5 5-5"/><path d="M4 21h16"/>'},

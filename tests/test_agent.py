@@ -536,3 +536,12 @@ def test_mcp_client_verification_is_still_labelled_mcp(tmp_path):
     mcpserver.add_finding_comment(pid, sid, findings[0]["finding_id"], "Verdict: True positive")
     entry = next(a for a in store.list_scan_activity() if a["scan"] == sid)
     assert entry["source"] == "mcp" and store.read_mcp_status()["tool"] == "add_finding_comment"
+
+
+def test_service_detection_reads_the_cgroup_not_invocation_id(tmp_path, monkeypatch):
+    monkeypatch.setenv("INVOCATION_ID", "inherited-from-a-terminal")
+    as_app = tmp_path / "app"; as_app.write_text("0::/user.slice/user-1000.slice/user@1000.service/app.slice/app-term.scope\n")
+    as_service = tmp_path / "svc"; as_service.write_text("0::/user.slice/user-1000.slice/user@1000.service/app.slice/kodand-agent.service\n")
+    assert agent.running_as_service(str(as_app)) is False
+    assert agent.running_as_service(str(as_service)) is True
+    assert agent.running_as_service(str(tmp_path / "missing")) is False

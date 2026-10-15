@@ -212,13 +212,22 @@ def _heartbeat(agent_id: str, started: str, stop: threading.Event, **info) -> No
             pass  # a missed heartbeat only makes the console show "offline" for a moment
 
 
+def running_as_service(cgroup_file: str = "/proc/self/cgroup") -> bool:
+    """Whether this worker runs as `kodand-agent.service`. Read from its cgroup: systemd's INVOCATION_ID
+    isn't proof, since every app started inside a systemd user session (a terminal, a browser) inherits it."""
+    try:
+        return f"/{SERVICE_NAME}" in Path(cgroup_file).read_text()
+    except OSError:
+        return False
+
+
 def run_worker(claude: str, timeout: float = DEFAULT_JOB_TIMEOUT, echo=print, once: bool = False,
                poll: float = POLL_SECONDS, parallel: int = 1) -> None:
     """Wait for jobs and run up to `parallel` at a time until interrupted (or, with `once`, until the
     queue is empty). `echo` prints progress for the person watching the terminal."""
     parallel = max(1, int(parallel))
     agent_id, started = str(os.getpid()), store._now()
-    info = {"parallel": parallel, "service": bool(os.environ.get("INVOCATION_ID"))}  # systemd sets INVOCATION_ID
+    info = {"parallel": parallel, "service": running_as_service()}
     cfg = write_mcp_config(agent_id)
     store.touch_agent_worker(int(agent_id), started, **info)
     stop, running, say = threading.Event(), {}, threading.Lock()
