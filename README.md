@@ -74,34 +74,51 @@ patterns, it doesn't prove exploitability.
   lines don't inflate results; proximity and cross-file relationship signals
   escalate genuinely suspicious co-occurrences instead.
 - **Parallel scanning** — match files across multiple worker processes
-  (`--workers N`) for faster scans of large repositories; sequential by
-  default, deterministic output at any worker count.
+  (`--workers N`, or the Parallel workers choice in the web console); sequential
+  by default, identical output at any worker count. It helps on large
+  repositories; on small ones starting the workers costs more than it saves.
 - **Finding review workflow** — mark findings Pending Review / True Positive /
-  False Positive / Remediated / Suppressed, with threaded comments.
+  False Positive / Remediated / Suppressed, with threaded comments. AI verdicts
+  show as coloured badges with a one-click **Mark as …** to set the status (never
+  automatic), and reports filter findings by verdict as well as severity.
 - **Open File, highlighted** — every finding and occurrence in a report links
   straight to the exact file and line in the built-in Files viewer, with the
   matched line highlighted and scrolled into view.
 - **AI-assisted review** — one-click AI Review (ChatGPT, Claude, Gemini, or any
   custom OpenAI-compatible endpoint) using the full affected file rather than
   just the matched excerpt, able to open the skill's other files when it needs
-  more context, and follow-up chat on any finding. **Ask AI-CLI** gives the same
-  answers through your own Claude Code login instead of an API key; each AI
-  button greys out when it isn't set up.
+  more context, and follow-up chat on any finding. **Ask AI-CLI** answers the same
+  kind of question through your own Claude Code login instead of an API key (with
+  the affected files in the prompt, but no tools to open others); each AI button
+  greys out when it isn't set up.
 - **MCP server** (`kodand mcp`) — scan, list findings, read scanned files, and
   verify findings directly from an MCP-capable agent's terminal session,
   without routing through a separately configured AI provider.
 - **Claude Agent** (`kodand agent`) — send findings from the web console to
-  your own Claude Code for verification, one click per finding or
-  automatically after a scan, using your own Claude login (no API key). See the
+  your own Claude Code for verification, one click per finding, per scan, or
+  automatically after a scan, using your own Claude login (no API key). Each
+  finding gets a fresh headless run that can only read the finding and its files
+  through Kodand's tools and record a verdict, with every built-in tool off. Runs
+  one at a time or `--parallel N`, in a terminal or as a background service
+  (`--install-service`, Linux/systemd); the sidebar shows whether it's connected,
+  Live Scans lists its queue, and Settings shows its token usage. See the
   [User Guide](USER_GUIDE.md#claude-agent--verifying-from-the-web-console).
 - **Your own Claude account, locally** — Claude Agent and Ask AI-CLI use the
   Claude Code CLI on your machine with your own Claude login; see
   [Using your own Claude account](#using-your-own-claude-account).
 - **Live Scans dashboard** — real-time per-file scan progress and
   AI-verification status, kept as durable history you can review (or delete)
-  later instead of disappearing once a scan finishes.
+  later instead of disappearing once a scan finishes, plus the Claude Agent queue
+  (remove one, selected, or all).
 - **Suppression framework** (`.kodand.yml`) with rule/category/path/finding
-  selectors and optional expiry.
+  selectors and optional expiry. From the web console, setting a finding to
+  Suppressed, or **Suppress…** on a False-positive verdict, saves a per-project
+  suppression (kept in Kodand's workspace, never written into your source) that
+  later scans of the project apply.
+- **Job files storage** — the scanned source each scan keeps for review, listed
+  per scan with its size, a Keep tag, manual delete, an optional retention period
+  and a storage graph (Settings → Job files). Deleting job files never removes
+  findings, reports or comments.
 - **Ground-truth benchmark** (`kodand bench`) reporting precision/recall/F1 per
   category against a labeled corpus, plus a hand-reviewed real-world scan —
   see [Accuracy](#accuracy).
@@ -226,8 +243,10 @@ tar, git) and, after a y/N prompt, installs any that are missing with your packa
 manager (`--check` only reports, `--yes` skips the prompt). Afterwards it checks that
 the web console, MCP server and code analysis import and prints the next steps. It uses [`pipx`](https://pipx.pypa.io) if
 available, then `uv tool install`, then a plain venv under
-`~/.local/share/kodand`, and restarts a running console service and MCP server so
-they pick up the new build.
+`~/.local/share/kodand`. It restarts the `kodand-ui` and `kodand-agent` services if
+you run them that way, and stops running `kodand mcp` processes so they don't keep
+serving the old build — reconnect MCP clients afterwards (`/mcp` in Claude Code, or a
+new session).
 
 ## CLI
 
@@ -271,12 +290,14 @@ to set a new one, or `kodand password reset --to-default` to go back to `kodand`
 the forced-change prompt.
 
 Tabs: **Projects** (create/scan/delete, upload a folder or archive, or scan a
-server-side path), **Live Scans** (real-time pipeline + AI-verification
-progress for any running or recent scan, with a Files viewer that highlights
-flagged lines), **Custom Templates** (literal **and** regex, global),
-**Benchmark** (run precision/recall/F1 in-app), **AI Assistant** (provider
-config for the per-finding AI Review button, plus MCP server setup),
-**About** (full AST/MCP/Hooks category reference).
+server-side path; per-project suppressions), **Live Scans** (real-time pipeline
+and AI-verification progress for any running or recent scan, and the Claude Agent
+queue), **Custom Templates** (literal **and** regex, global), **Benchmark** (run
+precision/recall/F1 in-app), **Settings** (the AI provider for AI Review, MCP
+server setup, Claude Agent status and usage, and Job files retention and storage),
+**About** (full AST/MCP/Hooks category reference). The sidebar shows whether a
+Claude Code MCP session (**Claude MCP**) and the Claude Agent worker (**Kodand
+Agent**) are connected.
 
 Reports are split into separate sections per taxonomy — Agentic Skills
 findings, MCP server findings, and Hook findings never mix in the same list —
@@ -326,8 +347,8 @@ recommendation: Never embed long-lived AWS keys; use scoped roles.
 ## Using your own Claude account
 
 Kodand is free, open-source software under the [MIT License](LICENSE) that you
-install and run yourself, on your own machine; the web console only listens on
-localhost. It isn't a hosted or licensed service, and it doesn't provide, resell or
+install and run yourself, on your own machine; the web console listens only on
+localhost unless you start it with `--allow-remote`. It isn't a hosted or licensed service, and it doesn't provide, resell or
 proxy access to Claude. **Claude Agent** and **Ask AI-CLI** run the Claude Code CLI
 (`claude`) already installed on your machine, signed in with **your own Claude
 account**, so that usage is yours, under your own Claude plan and Anthropic's terms,
