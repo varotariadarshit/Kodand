@@ -650,7 +650,7 @@ async function loadActiveScans(){
     el.innerHTML=scans.map(s=>{
       const sm=STATUS_META[s.status]||STATUS_META.unknown;
       const live=(s.status==='running'||s.status==='verifying')?'<span class="livedot" style="margin-right:8px"></span>':'';
-      const aiTag=s.source==='mcp'?'[AI: MCP-AGENT]':'[AI: MANUAL]';
+      const aiTag=s.source==='agent'?'[AI: CLAUDE AGENT]':s.source==='mcp'?'[AI: MCP-AGENT]':'[AI: MANUAL]';
       return `<div class="entry" style="cursor:pointer;font-family:'IBM Plex Mono',monospace" onclick="openActivityDetail('${s.project}','${s.scan}')">
         <div><div class="name">${live}${escHtml(s.label)}</div><div class="hash">${s.project} / ${s.scan}</div>
           <div class="stats"><span>${escHtml(s.status_label||s.status)}</span><span>started ${s.started}</span><span>${aiTag}</span></div></div>
@@ -701,7 +701,7 @@ function renderVerifyBadge(verifyStatus,verifyLabel,source){
   if(!verifyStatus){b.className='hx-tag dim';b.textContent='No AI Verification Yet';return;}
   const cls=verifyStatus==='verified'?'done':verifyStatus==='interrupted'?'warn':'';
   b.className='hx-tag '+cls;
-  const mech=source==='mcp'?' · MCP Agent':source?' · Manual':'';
+  const mech=source==='agent'?' · Claude Agent':source==='mcp'?' · MCP Agent':source?' · Manual':'';
   b.textContent=verifyLabel+mech;
 }
 function nowClock(ts){return ts?new Date(ts.replace(' ','T')+(ts.endsWith('Z')?'':'Z')).toLocaleTimeString('en-GB'):new Date().toLocaleTimeString('en-GB');}

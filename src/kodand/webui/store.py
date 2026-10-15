@@ -34,6 +34,42 @@ def _slug(name: str) -> str:
     s = re.sub(r"\.{2,}", ".", s).strip("-._")[:100]; return s or "project"
 def _now() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+# Several processes write the same workspace files: the console (and its request threads), your Claude
+# Code session's `kodand mcp`, and Claude Agent runs (several at once with --parallel). Every
+# read-modify-write of a shared file holds a _file_lock on it, and every write replaces the file
+# atomically, so writers never lose each other's changes and readers never see half a file.
+_LOCK_STALE = 10   # a lock file older than this was left by a killed process: break it
+
+
+class _file_lock:
+    """Cross-process, cross-thread lock: an O_EXCL lock file next to what it guards (works the same on
+    every OS). Not re-entrant — never take the same lock twice in one call chain."""
+    def __init__(self, guarded: Path, what: str = "workspace file"):
+        self.path, self.what = guarded.with_name(f".{guarded.name}.lock"), what
+    def __enter__(self):
+        deadline = time.monotonic() + 2 * _LOCK_STALE
+        while True:
+            try:
+                os.close(os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)); return self
+            except FileExistsError:
+                try:
+                    if time.time() - self.path.stat().st_mtime > _LOCK_STALE:
+                        self.path.unlink(missing_ok=True); continue
+                except FileNotFoundError:
+                    continue
+                if time.monotonic() > deadline:
+                    raise TimeoutError(f"{self.what} is locked by another Kodand process")
+                time.sleep(0.01)
+    def __exit__(self, *exc):
+        self.path.unlink(missing_ok=True)
+
+
+def _write_json_atomic(p: Path, data) -> None:
+    # unique temp name per write: two threads of one process writing the same file mustn't share it
+    tmp = p.with_name(f".{p.name}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp")
+    tmp.write_text(json.dumps(data, indent=2)); os.replace(tmp, p)
 def projects_dir() -> Path:
     return workspace_root() / "projects"
 def list_projects() -> list:
@@ -302,7 +338,9 @@ def _load_overrides(pid: str, sid: str) -> dict:
     p = _review_path(pid, sid)
     return json.loads(p.read_text()) if p.exists() else {}
 def _save_overrides(pid: str, sid: str, data: dict) -> None:
-    _review_path(pid, sid).write_text(json.dumps(data, indent=2))
+    _write_json_atomic(_review_path(pid, sid), data)
+def _review_lock(pid: str, sid: str) -> _file_lock:
+    return _file_lock(_review_path(pid, sid), "this scan's review file")
 def find_finding(pid: str, sid: str, finding_id: str) -> dict:
     for f in _analysis(pid, sid).get("findings", []):
         if f["finding_id"] == finding_id: return f
@@ -318,9 +356,11 @@ def set_finding_status(pid: str, sid: str, finding_id: str, status: str) -> dict
     if status not in REVIEW_STATUSES:
         raise ValueError(f"Invalid status '{status}'. Expected one of: {', '.join(sorted(REVIEW_STATUSES))}")
     finding = find_finding(pid, sid, finding_id)  # raises FileNotFoundError if unknown
-    overrides = _load_overrides(pid, sid)
-    entry = overrides.setdefault(finding_id, {}); entry["status"] = status
-    _save_overrides(pid, sid, overrides)
+    with _review_lock(pid, sid):
+        overrides = _load_overrides(pid, sid)
+        entry = overrides.setdefault(finding_id, {}); entry["status"] = status
+        _save_overrides(pid, sid, overrides)
+    # (outside the review lock: the suppressions file has its own)
     # "Suppressed" is a promise about future scans too: keep the project's suppressions in step
     if status == "suppressed":
         _ensure_status_suppression(pid, sid, finding)
@@ -370,36 +410,39 @@ def add_comment(pid: str, sid: str, finding_id: str, text: str, author: str = "Y
     text = (text or "").strip()
     if not text: raise ValueError("Comment text is required")
     find_finding(pid, sid, finding_id)  # raises FileNotFoundError if unknown
-    overrides = _load_overrides(pid, sid)
-    entry = overrides.setdefault(finding_id, {}); comments = entry.setdefault("comments", [])
     comment = {"id": uuid.uuid4().hex[:10], "author": author, "kind": kind, "text": text, "created": _now()}
     verdict = verdict if verdict in COMMENT_VERDICTS else parse_verdict(text)
     if verdict: comment["verdict"] = verdict
-    comments.append(comment); _save_overrides(pid, sid, overrides)
+    with _review_lock(pid, sid):
+        overrides = _load_overrides(pid, sid)
+        overrides.setdefault(finding_id, {}).setdefault("comments", []).append(comment)
+        _save_overrides(pid, sid, overrides)
     return comment
 def edit_comment(pid: str, sid: str, finding_id: str, comment_id: str, text: str) -> dict:
     text = (text or "").strip()
     if not text: raise ValueError("Comment text is required")
-    overrides = _load_overrides(pid, sid)
-    comments = (overrides.get(finding_id) or {}).get("comments") or []
-    for c in comments:
-        if c["id"] == comment_id:
-            c["text"] = text; c["edited"] = _now()
-            verdict = parse_verdict(text)  # an edit that changes (or removes) the verdict line moves the badge with it
-            if verdict: c["verdict"] = verdict
-            else: c.pop("verdict", None)
-            _save_overrides(pid, sid, overrides)
-            return c
+    with _review_lock(pid, sid):
+        overrides = _load_overrides(pid, sid)
+        comments = (overrides.get(finding_id) or {}).get("comments") or []
+        for c in comments:
+            if c["id"] == comment_id:
+                c["text"] = text; c["edited"] = _now()
+                verdict = parse_verdict(text)  # an edit that changes (or removes) the verdict line moves the badge with it
+                if verdict: c["verdict"] = verdict
+                else: c.pop("verdict", None)
+                _save_overrides(pid, sid, overrides)
+                return c
     raise FileNotFoundError("comment not found")
 def delete_comment(pid: str, sid: str, finding_id: str, comment_id: str) -> None:
-    overrides = _load_overrides(pid, sid)
-    entry = overrides.get(finding_id) or {}
-    comments = entry.get("comments") or []
-    kept = [c for c in comments if c["id"] != comment_id]
-    if len(kept) == len(comments):
-        raise FileNotFoundError("comment not found")
-    entry["comments"] = kept; overrides[finding_id] = entry
-    _save_overrides(pid, sid, overrides)
+    with _review_lock(pid, sid):
+        overrides = _load_overrides(pid, sid)
+        entry = overrides.get(finding_id) or {}
+        comments = entry.get("comments") or []
+        kept = [c for c in comments if c["id"] != comment_id]
+        if len(kept) == len(comments):
+            raise FileNotFoundError("comment not found")
+        entry["comments"] = kept; overrides[finding_id] = entry
+        _save_overrides(pid, sid, overrides)
 
 
 # --- Project suppressions: `.kodand.yml`-style entries kept in Kodand's workspace (never written into
@@ -416,7 +459,11 @@ def load_project_suppressions(pid: str) -> list:
     data = yaml.safe_load(p.read_text()) or {}
     return [s for s in data.get("suppressions") or [] if isinstance(s, dict)]
 def _save_project_suppressions(pid: str, entries: list) -> None:
-    _suppressions_path(pid).write_text(yaml.safe_dump({"suppressions": entries}, sort_keys=False, allow_unicode=True))
+    p = _suppressions_path(pid)
+    tmp = p.with_name(f".{p.name}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp")
+    tmp.write_text(yaml.safe_dump({"suppressions": entries}, sort_keys=False, allow_unicode=True)); os.replace(tmp, p)
+def _suppressions_lock(pid: str) -> _file_lock:
+    return _file_lock(_suppressions_path(pid), "this project's suppressions")
 
 
 _STATUS_REASON = "Marked Suppressed in review"
@@ -432,21 +479,23 @@ def _covered(finding: dict, entries: list) -> bool:
 def _ensure_status_suppression(pid: str, sid: str, finding: dict) -> None:
     """A finding set to Suppressed gets a finding-id suppression for the project — unless an existing
     entry (a rule or path the user chose with "Suppress…") already covers it."""
-    entries = load_project_suppressions(pid)
-    if _covered(finding, entries):
-        return
-    _save_project_suppressions(pid, entries + [{
-        "finding_id": finding["finding_id"], "reason": _STATUS_REASON, "origin": "status",
-        "title": finding.get("title", ""), "scan_id": sid, "created": _now()}])
+    with _suppressions_lock(pid):
+        entries = load_project_suppressions(pid)
+        if _covered(finding, entries):
+            return
+        _save_project_suppressions(pid, entries + [{
+            "finding_id": finding["finding_id"], "reason": _STATUS_REASON, "origin": "status",
+            "title": finding.get("title", ""), "scan_id": sid, "created": _now()}])
 
 
 def _drop_status_suppression(pid: str, finding_id: str) -> None:
     """Setting the status back to anything else lifts the suppression that Suppressed created (never
     one the user wrote with a rule or path)."""
-    entries = load_project_suppressions(pid)
-    kept = [e for e in entries if not (e.get("origin") == "status" and e.get("finding_id") == finding_id)]
-    if len(kept) != len(entries):
-        _save_project_suppressions(pid, kept)
+    with _suppressions_lock(pid):
+        entries = load_project_suppressions(pid)
+        kept = [e for e in entries if not (e.get("origin") == "status" and e.get("finding_id") == finding_id)]
+        if len(kept) != len(entries):
+            _save_project_suppressions(pid, kept)
 
 
 def sync_status_suppressions(pid: str) -> list:
@@ -479,8 +528,8 @@ def add_project_suppression(pid: str, entry: dict) -> dict:
         except ValueError:
             raise ValueError("Expiry must be a date like 2026-12-31.")
     e["created"] = _now()
-    entries = load_project_suppressions(pid) + [e]
-    _save_project_suppressions(pid, entries)
+    with _suppressions_lock(pid):
+        _save_project_suppressions(pid, load_project_suppressions(pid) + [e])
     return e
 
 
@@ -489,10 +538,12 @@ def delete_project_suppression(pid: str, index: int) -> dict:
     entry still covers them): deleting a suppression means "report this again"."""
     from kodand.models.analysis import CorrelatedFinding
     from kodand.suppress import Suppression
-    entries = load_project_suppressions(pid)
-    if not 0 <= index < len(entries): raise FileNotFoundError("suppression not found")
-    removed = entries.pop(index)
-    _save_project_suppressions(pid, entries)
+    with _suppressions_lock(pid):
+        entries = load_project_suppressions(pid)
+        if not 0 <= index < len(entries): raise FileNotFoundError("suppression not found")
+        removed = entries.pop(index)
+        _save_project_suppressions(pid, entries)
+    # (outside the lock: set_finding_status below may update this file itself)
     rule = Suppression(removed)
     for meta in list_scans(pid):
         sid = meta.get("id")
@@ -577,10 +628,6 @@ def save_mcp_settings(payload: dict) -> dict:
     mcp_settings_path().write_text(json.dumps(data, indent=2)); return data
 def mcp_status_path() -> Path:
     return workspace_root() / "mcp_status.json"
-def _write_json_atomic(p: Path, data: dict) -> None:
-    # the web UI polls these while the MCP process rewrites them — never let it read half a file
-    tmp = p.with_name(f".{p.name}.{os.getpid()}.tmp")
-    tmp.write_text(json.dumps(data, indent=2)); os.replace(tmp, p)
 def _read_json(p: Path) -> dict | None:
     try:
         return json.loads(p.read_text())
@@ -661,7 +708,6 @@ AGENT_OPEN_STATES = ("queued", "running")
 AGENT_VERDICTS = {"true_positive": "True positive", "false_positive": "False positive", "needs_review": "Needs review"}
 _SEVERITY_RANK = {"critical": 4, "high": 3, "medium": 2, "low": 1, "informational": 0}
 _AGENT_JOB_ID_RE = re.compile(r"^[0-9a-f]{12}$")
-_AGENT_LOCK_STALE = 10
 
 
 def agent_dir() -> Path:
@@ -674,26 +720,9 @@ def _agent_job_path(jid: str) -> Path:
     return agent_dir() / "jobs" / f"{jid}.json"
 
 
-class _agent_lock:
-    """Cross-process lock for the job files: O_EXCL create works the same on every OS. A lock
-    left by a killed process is broken after _AGENT_LOCK_STALE seconds."""
-    def __enter__(self):
-        self.path = agent_dir() / ".lock"
-        deadline = time.monotonic() + 2 * _AGENT_LOCK_STALE
-        while True:
-            try:
-                os.close(os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)); return self
-            except FileExistsError:
-                try:
-                    if time.time() - self.path.stat().st_mtime > _AGENT_LOCK_STALE:
-                        self.path.unlink(missing_ok=True); continue
-                except FileNotFoundError:
-                    continue
-                if time.monotonic() > deadline:
-                    raise TimeoutError("Claude Agent job store is locked")
-                time.sleep(0.02)
-    def __exit__(self, *exc):
-        self.path.unlink(missing_ok=True)
+def _agent_lock() -> _file_lock:
+    """Cross-process lock for the Claude Agent job files."""
+    return _file_lock(agent_dir() / "jobs", "Claude Agent job store")
 
 
 def _load_agent_jobs() -> list:
@@ -1070,16 +1099,19 @@ def _load_registry() -> dict:
     p = scan_registry_path()
     return json.loads(p.read_text()) if p.exists() else {}
 def _save_registry(data: dict) -> None:
-    scan_registry_path().write_text(json.dumps(data, indent=2))
+    _write_json_atomic(scan_registry_path(), data)
+def _registry_lock() -> _file_lock:
+    return _file_lock(scan_registry_path(), "the Live Scans registry")
 def _remove_project_from_registry(pid: str) -> None:
     """Drop every Live Scans registry entry for a deleted project — otherwise
     list_scan_activity() finds a scan pointing at a project directory that no
     longer exists next time anyone loads the dashboard (see the FileNotFoundError
     guard there too, which covers any orphan this proactive cleanup still misses)."""
-    reg = _load_registry()
-    kept = {k: v for k, v in reg.items() if v.get("project") != pid}
-    if len(kept) != len(reg):
-        _save_registry(kept)
+    with _registry_lock():
+        reg = _load_registry()
+        kept = {k: v for k, v in reg.items() if v.get("project") != pid}
+        if len(kept) != len(reg):
+            _save_registry(kept)
 def _age(timestamp: str | None) -> float:
     try:
         return time.time() - calendar.timegm(time.strptime(timestamp, "%Y-%m-%dT%H:%M:%SZ"))
@@ -1093,24 +1125,31 @@ def read_scan_log(pid: str, sid: str) -> list:
     p = _log_path(pid, sid)
     return json.loads(p.read_text()) if p.exists() else []
 def _append_scan_log(pid: str, sid: str, stage: str, detail: dict) -> None:
+    """Only under the scan's progress lock (write_scan_progress)."""
     p = _log_path(pid, sid)
     log = json.loads(p.read_text()) if p.exists() else []
     log.append({"stage": stage, "detail": detail, "at": _now()})
-    p.write_text(json.dumps(log, indent=2))
+    _write_json_atomic(p, log)
 
 def write_scan_progress(pid: str, sid: str, stage: str, detail: dict | None = None) -> None:
     detail = detail or {}
-    prev = read_scan_progress(pid, sid)
-    # log one entry per pipeline-stage transition, plus one per finding actually verified — not
-    # every "matching" per-file tick, which would blow up an already-durable log for a big repo
-    changed_stage = prev.get("stage") != stage
-    changed_finding = stage == "verifying" and (prev.get("detail") or {}).get("finding_id") != detail.get("finding_id")
-    if changed_stage or changed_finding:
-        _append_scan_log(pid, sid, stage, detail)
     scan_dir(pid, sid).mkdir(parents=True, exist_ok=True)
-    _progress_path(pid, sid).write_text(json.dumps({"stage": stage, "detail": detail, "updated": _now()}, indent=2))
+    with _file_lock(_progress_path(pid, sid), "this scan's progress"):
+        prev = read_scan_progress(pid, sid)
+        # log one entry per pipeline-stage transition, plus one per finding actually verified — not
+        # every "matching" per-file tick, which would blow up an already-durable log for a big repo
+        changed_stage = prev.get("stage") != stage
+        changed_finding = stage == "verifying" and (prev.get("detail") or {}).get("finding_id") != detail.get("finding_id")
+        if changed_stage or changed_finding:
+            _append_scan_log(pid, sid, stage, detail)
+        _write_json_atomic(_progress_path(pid, sid), {"stage": stage, "detail": detail, "updated": _now()})
 
 def _touch_registry(pid: str, sid: str, label: str | None = None, source: str | None = None) -> None:
+    with _registry_lock():
+        _touch_registry_locked(pid, sid, label, source)
+
+
+def _touch_registry_locked(pid: str, sid: str, label: str | None, source: str | None) -> None:
     reg = _load_registry()
     key = f"{pid}:{sid}"
     entry = reg.get(key) or {"project": pid, "scan": sid, "started": _now()}
@@ -1134,12 +1173,13 @@ def start_scan_progress(pid: str, sid: str, label: str, source: str) -> None:
     _touch_registry(pid, sid, label, source)
 def finish_scan_progress(pid: str, sid: str, stage: str, detail: dict | None = None) -> None:
     write_scan_progress(pid, sid, stage, detail)
-def mark_verifying(pid: str, sid: str, verified: int, total: int, finding_id: str | None = None) -> None:
+def mark_verifying(pid: str, sid: str, verified: int, total: int, finding_id: str | None = None,
+                   source: str = "mcp") -> None:
     """Called on every verify_finding/add_finding_comment MCP call — surfaces AI-verification
     activity (which happens as many separate tool calls well after scan() itself returned) in the
     same Live Scans dashboard as the scan pipeline, instead of going dark the moment scan() finishes."""
     write_scan_progress(pid, sid, "verifying", {"verified": verified, "total": total, "finding_id": finding_id})
-    _touch_registry(pid, sid, source="mcp")
+    _touch_registry(pid, sid, source=source)  # "mcp" (an MCP client) or "agent" (Claude Agent)
 
 def _agent_queues(jobs: list, worker_running: bool) -> dict:
     """{(project, scan): {"queued", "running", "worker"}} for scans with open Claude Agent jobs."""
@@ -1231,10 +1271,11 @@ def list_scan_activity(limit: int = 50) -> list:
         except FileNotFoundError:
             stale_keys.append(key)
     if stale_keys:
-        reg = _load_registry()
-        for k in stale_keys:
-            reg.pop(k, None)
-        _save_registry(reg)
+        with _registry_lock():
+            reg = _load_registry()
+            for k in stale_keys:
+                reg.pop(k, None)
+            _save_registry(reg)
     out.sort(key=lambda x: x.get("updated") or x.get("started") or "", reverse=True)
     return out[:limit]
 
@@ -1242,11 +1283,12 @@ def delete_scan_activity(pid: str, sid: str) -> bool:
     """Remove this scan from the Live Scans dashboard — its registry entry, progress snapshot, and
     log. Does not touch the scan's own findings/report/source; deleting those is the separate
     "Delete"/"Delete Artifacts" actions on the Projects tab."""
-    reg = _load_registry()
     key = f"{pid}:{sid}"
-    existed = reg.pop(key, None) is not None
-    if existed:
-        _save_registry(reg)
+    with _registry_lock():
+        reg = _load_registry()
+        existed = reg.pop(key, None) is not None
+        if existed:
+            _save_registry(reg)
     _progress_path(pid, sid).unlink(missing_ok=True)
     _log_path(pid, sid).unlink(missing_ok=True)
     return existed

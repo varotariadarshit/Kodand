@@ -44,7 +44,10 @@ def _tracked(fn):
         if _agent_mode and fn.__name__ in AGENT_BLOCKED_TOOLS:
             # backstop for an mcp version without remove_tool — see _enter_agent_mode
             raise ValueError(f"{fn.__name__} isn't available to Claude Agent sessions.")
-        store.touch_mcp_activity(project=kwargs.get("project_id") or kwargs.get("project"), tool=fn.__name__)
+        if not _agent_mode:
+            # Claude Agent runs aren't an MCP client: they'd make the console's MCP status read
+            # "Active" with no MCP session connected (Settings → Claude Agent shows them instead)
+            store.touch_mcp_activity(project=kwargs.get("project_id") or kwargs.get("project"), tool=fn.__name__)
         return fn(*args, **kwargs)
     return wrapper
 
@@ -68,10 +71,10 @@ def _require_consent() -> None:
         raise ValueError("MCP data sharing has not been acknowledged yet. Open Kodand -> Settings -> MCP Server and check the consent box first.")
 
 
-def _touch_verification(pid: str, sid: str, finding_id: str) -> None:
+def _touch_verification(pid: str, sid: str, finding_id: str, source: str = "mcp") -> None:
     review = store.get_review(pid, sid)
     verified = sum(1 for v in review.values() if v["comments"])
-    store.mark_verifying(pid, sid, verified, len(review), finding_id)
+    store.mark_verifying(pid, sid, verified, len(review), finding_id, source=source)
 
 
 def _default_project() -> str:
@@ -272,7 +275,7 @@ def complete_job(job_id: str, verdict: Literal["true_positive", "false_positive"
     text = f"Verdict: {store.AGENT_VERDICTS[verdict]}\n\n{(summary or '').strip()}"
     comment = store.add_comment(pid, sid, fid, text, author="Claude Agent", kind="ai", verdict=verdict)
     store.complete_agent_job(job_id, _AGENT_ID, verdict, comment["id"])
-    _touch_verification(pid, sid, fid)
+    _touch_verification(pid, sid, fid, source="agent")  # Live Scans labels it Claude Agent, not MCP
     return {"job_id": job_id, "status": "done", "comment_id": comment["id"]}
 
 

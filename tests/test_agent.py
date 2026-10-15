@@ -513,3 +513,26 @@ def test_cancelling_a_running_job_stops_its_claude_run(tmp_path, fake_claude, mo
     assert time.monotonic() - t0 < 10  # not the 30 s the hanging run would take
     assert store.get_agent_job(job["id"])["status"] == "cancelled"
     assert any("cancelled" in m for m in lines)
+
+
+# --- Claude Agent vs MCP: labels -------------------------------------------------------------------
+
+def test_claude_agent_work_is_not_reported_as_mcp_activity(tmp_path, monkeypatch):
+    pid, sid, findings = _scan(tmp_path)
+    job = store.enqueue_agent_job(pid, sid, findings[0]["finding_id"])
+    store.claim_next_agent_job(ME)
+    before = store.read_mcp_status().get("last_activity")
+    time.sleep(1.1)  # last_activity has 1 s resolution
+    monkeypatch.setattr(mcpserver, "_agent_mode", True)
+    tracked_complete = mcpserver._tracked(mcpserver.complete_job)  # as registered in agent mode
+    tracked_complete(job["id"], "true_positive", "x")
+    assert store.read_mcp_status().get("last_activity") == before  # the MCP status didn't move
+    entry = next(a for a in store.list_scan_activity() if a["scan"] == sid)
+    assert entry["source"] == "agent"  # Live Scans shows "Claude Agent", not "MCP Agent"
+
+
+def test_mcp_client_verification_is_still_labelled_mcp(tmp_path):
+    pid, sid, findings = _scan(tmp_path)
+    mcpserver.add_finding_comment(pid, sid, findings[0]["finding_id"], "Verdict: True positive")
+    entry = next(a for a in store.list_scan_activity() if a["scan"] == sid)
+    assert entry["source"] == "mcp" and store.read_mcp_status()["tool"] == "add_finding_comment"
