@@ -21,6 +21,10 @@ kodand ui                                      # or review findings in the web c
 
 <p align="center">
   <img src="docs/assets/kodand-tour.webp" alt="Kodand tour: scanning from the terminal, the web console's projects and new-scan options, a report with severity and verdict filters, a Claude Agent verdict, the Files viewer, suppressions, Live Scans with the Claude Agent queue, Settings (AI provider, MCP, Claude Agent usage, job files storage), custom templates, the benchmark and the Top 10 coverage" width="860">
+  <br>
+  <sub>A tour of Kodand 1.0.0: the CLI, then the web console — scanning, reports with
+  verdict filters, Claude Agent verdicts, suppressions, Live Scans, Settings and more.
+  Screens from a demo workspace scanning public test material.</sub>
 </p>
 
 **Accuracy:** on OpenA2A's deliberately vulnerable
@@ -279,6 +283,7 @@ are in [docs/BENCHMARK.md](https://github.com/varotariadarshit/Kodand/blob/maste
 ```bash
 kodand ui                     # http://127.0.0.1:8787
 ```
+The tour at the top of this page walks through every screen below.
 **First sign-in:** the console is password-protected. A fresh workspace starts with
 the default password **`kodand`**, and you're required to replace it before you can
 reach the console — the login page shows this hint until you do. Credentials live in
