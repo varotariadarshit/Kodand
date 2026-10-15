@@ -20,7 +20,7 @@ kodand ui                                      # or review findings in the web c
 ```
 
 <p align="center">
-  <img src="docs/assets/demo.gif" alt="Kodand scanning a vulnerable agent lab: CLI output, the web console, findings, the Files viewer and live MCP status" width="860">
+  <img src="docs/assets/kodand-tour.webp" alt="Kodand tour: scanning from the terminal, the web console's projects and new-scan options, a report with severity and verdict filters, a Claude Agent verdict, the Files viewer, suppressions, Live Scans with the Claude Agent queue, Settings (AI provider, MCP, Claude Agent usage, job files storage), custom templates, the benchmark and the Top 10 coverage" width="860">
 </p>
 
 **Accuracy:** on OpenA2A's deliberately vulnerable
