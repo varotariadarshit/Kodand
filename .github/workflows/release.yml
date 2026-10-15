@@ -1,9 +1,10 @@
 name: Release
 
-# Runs when a version tag is pushed, e.g. `git tag v1.0.0 && git push origin v1.0.0`.
-# Publishing uses PyPI trusted publishing: no API token is stored in GitHub. The
-# PyPI project must list this repository, this workflow file and the "pypi"
-# environment as a trusted publisher first.
+# Runs when a version tag is pushed, e.g. `git tag v1.0.0 && git push origin v1.0.0`:
+# checks the tag matches the package version, runs the tests and benchmark, builds the
+# wheel and sdist, and creates a GitHub release with them attached and the notes taken
+# from that version's CHANGELOG section. Kodand isn't published on PyPI; people install
+# from the repository (./install.sh) or from a release's wheel.
 on:
   push:
     tags: ["v*"]
@@ -37,21 +38,8 @@ jobs:
           name: dist
           path: dist/
 
-  publish-pypi:
-    needs: build
-    runs-on: ubuntu-latest
-    environment: pypi
-    permissions:
-      id-token: write
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: dist
-          path: dist/
-      - uses: pypa/gh-action-pypi-publish@release/v1
-
   github-release:
-    needs: publish-pypi
+    needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: write

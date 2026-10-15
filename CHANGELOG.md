@@ -131,4 +131,5 @@ Initial release.
 - README, `USER_GUIDE.md`, `docs/BENCHMARK.md`, `CONTRIBUTING.md`, a code of
   conduct and issue templates.
 - CI on Python 3.11–3.14 (Linux and macOS), a wheel smoke test, and a tag-triggered
-  release workflow using PyPI trusted publishing.
+  release workflow that tests, builds and attaches the wheel and sdist to a GitHub
+  release (no PyPI publishing).
