@@ -14,7 +14,7 @@ docs. For anything large, open an issue first so we can agree on the approach.
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev,all]"
+pip install -e ".[dev]"
 ```
 
 ## Tests

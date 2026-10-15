@@ -231,18 +231,14 @@ Upgrade with `git pull && ./install.sh`. Without a clone, pipx can install strai
 from GitHub (`uv tool install` takes the same spec):
 
 ```bash
-pipx install "kodand[all] @ git+https://github.com/varotariadarshit/Kodand.git"
+pipx install "git+https://github.com/varotariadarshit/Kodand.git"
 ```
 
-| Extra | Adds |
-| --- | --- |
-| `ui` | The local web console (`kodand ui`) |
-| `mcp` | The MCP server (`kodand mcp`) |
-| `code` | JavaScript/TypeScript code analysis (tree-sitter). Python analysis needs no extra |
-| `all` | All three |
+Either way you get everything: the CLI, the web console (`kodand ui`), the MCP server
+(`kodand mcp`) and JavaScript/TypeScript code analysis. There are no optional extras
+to pick.
 
-From a clone, `./install.sh` does the same and always installs everything
-(`all`). It first lists the dependencies it needs (Python 3.11.4+, pipx/uv/venv,
+From a clone, `./install.sh` does the same. It first lists the dependencies it needs (Python 3.11.4+, pipx/uv/venv,
 tar, git) and, after a y/N prompt, installs any that are missing with your package
 manager (`--check` only reports, `--yes` skips the prompt). Afterwards it checks that
 the web console, MCP server and code analysis import and prints the next steps. It uses [`pipx`](https://pipx.pypa.io) if

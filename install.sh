@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)";BIN="$HOME/.local/bin";mkdir -p "$BIN"
-# Always the complete install: the web console (ui), the MCP server (mcp) and JS/TS analysis (code), so
-# every feature works straight away and nobody has to reinstall to switch one on later.
-EXTRAS="all"
+# Always the complete install: the web console, the MCP server and JS/TS analysis are regular
+# dependencies of the package, so every feature works straight away.
 ASSUME_YES=0; CHECK_ONLY=0
 for arg in "$@"; do
   case "$arg" in
@@ -125,7 +124,7 @@ if command -v git >/dev/null 2>&1 && git -C "$ROOT" rev-parse --is-inside-work-t
   (cd "$ROOT" && git ls-files -z -co --exclude-standard | while IFS= read -r -d '' f; do if [ -e "$f" ]; then printf '%s\0' "$f"; fi; done \
      | tar --null -T - -cf -) | tar -xf - -C "$SRC"
 fi
-SPEC="$SRC"; [ -n "$EXTRAS" ] && SPEC="$SRC[$EXTRAS]"
+SPEC="$SRC"  # every part (web console, MCP server, code analysis) is a regular dependency
 if command -v pipx >/dev/null 2>&1;then pipx install --force "$SPEC";elif command -v uv >/dev/null 2>&1;then uv tool install --force "$SPEC";else ENV="$HOME/.local/share/kodand";python3 -m venv "$ENV";"$ENV/bin/python" -m pip install --upgrade pip setuptools wheel;"$ENV/bin/pip" install --force-reinstall "$SPEC";ln -sf "$ENV/bin/kodand" "$BIN/kodand";fi
 VER="$(grep -m1 '^version=' "$SRC/pyproject.toml" | sed -E 's/version="([^"]+)"/\1/')"
 echo "Installed Kodand $VER (ui + mcp + code)."

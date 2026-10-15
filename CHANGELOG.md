@@ -19,6 +19,9 @@ Initial release.
   11 of 11 findings confirmed by hand on OpenA2A's damn-vulnerable-ai-agent
   (see `docs/BENCHMARK.md`).
 - Install from the repository with `./install.sh` (Kodand isn't published on PyPI).
+  Every install includes everything — CLI, web console, MCP server and JS/TS code
+  analysis are all regular dependencies, so there are no extras to pick
+  (`[ui]`, `[mcp]`, `[code]` and `[all]` still resolve, as no-ops).
 - Free, open-source (MIT) software you run locally, not a hosted service: Claude
   Agent and Ask AI-CLI use the Claude Code CLI on your machine with your own
   Claude account.

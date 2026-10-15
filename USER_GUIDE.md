@@ -37,10 +37,10 @@ cd Kodand && ./install.sh
 kodand version
 ```
 
-- Without a clone: `pipx install "kodand[all] @ git+https://github.com/varotariadarshit/Kodand.git"`.
-  `[all]` installs every optional part: `ui` (web console — FastAPI/uvicorn), `mcp`
-  (MCP server support) and `code` (JavaScript/TypeScript code analysis via
-  tree-sitter; Python analysis needs no extra).
+- Without a clone: `pipx install "git+https://github.com/varotariadarshit/Kodand.git"`.
+- Every install includes everything: the CLI, the web console (FastAPI/uvicorn), the
+  MCP server and JavaScript/TypeScript code analysis (tree-sitter). There are no
+  optional extras to choose.
 - Upgrade with `git pull && ./install.sh`. If an MCP client has
   `kodand mcp` running, restart that client session afterwards so it picks up the
   new build (see the `status` MCP tool in section 6 to check).

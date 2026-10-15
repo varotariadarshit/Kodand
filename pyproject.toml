@@ -27,13 +27,19 @@ classifiers=[
   "Topic :: Software Development :: Quality Assurance",
 ]
 requires-python=">=3.11.4"
-dependencies=["pydantic>=2.7,<3","PyYAML>=6,<7","rich>=13.7,<15","typer>=0.12,<1","python-docx>=1.1,<2","reportlab>=4,<5"]
+# Everything is installed by default: the CLI, the web console (fastapi/uvicorn/python-multipart),
+# the MCP server (mcp) and JS/TS code analysis (tree-sitter), so one plain install has every feature.
+dependencies=["pydantic>=2.7,<3","PyYAML>=6,<7","rich>=13.7,<15","typer>=0.12,<1","python-docx>=1.1,<2","reportlab>=4,<5",
+  "fastapi>=0.110,<1","uvicorn>=0.27,<1","python-multipart>=0.0.9",
+  "mcp>=1.2,<2",
+  "tree-sitter>=0.21,<1","tree-sitter-javascript>=0.21,<1","tree-sitter-typescript>=0.21,<1"]
 [project.optional-dependencies]
 dev=["pytest>=8,<9","ruff>=0.6,<1"]
-ui=["fastapi>=0.110,<1","uvicorn>=0.27,<1","python-multipart>=0.0.9"]
-mcp=["mcp>=1.2,<2"]
-code=["tree-sitter>=0.21,<1","tree-sitter-javascript>=0.21,<1","tree-sitter-typescript>=0.21,<1"]
-all=["kodand[ui,mcp,code]"]
+# kept, empty, so older install commands with [ui] / [mcp] / [code] / [all] still work
+ui=[]
+mcp=[]
+code=[]
+all=[]
 [project.urls]
 Homepage="https://github.com/varotariadarshit/Kodand"
 Documentation="https://github.com/varotariadarshit/Kodand/blob/master/USER_GUIDE.md"

@@ -23,7 +23,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
           allow-prereleases: true
       - name: Install
-        run: pip install -e ".[dev,all]"
+        run: pip install -e ".[dev]"
       - name: Lint
         run: ruff check .
       - name: Test
@@ -47,7 +47,7 @@ jobs:
       - name: Install wheel in a clean venv and smoke-test it
         run: |
           python -m venv /tmp/wheel-env
-          /tmp/wheel-env/bin/pip install "$(ls dist/*.whl)[all]"
+          /tmp/wheel-env/bin/pip install "$(ls dist/*.whl)"
           cd /tmp
           /tmp/wheel-env/bin/kodand version
           /tmp/wheel-env/bin/kodand bench --no-banner | tee bench.txt
