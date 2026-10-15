@@ -136,7 +136,7 @@ def ui(host: str = typer.Option('127.0.0.1', '--host'), port: int = typer.Option
     try:
         import uvicorn
     except ImportError:
-        c.print("[red]Web UI dependencies missing.[/red] Install with: pip install 'kodand[ui]'  (or: pip install fastapi uvicorn python-multipart)"); raise typer.Exit(2)
+        c.print("[red]Web UI dependencies missing.[/red] Re-run ./install.sh from your Kodand clone; it installs every part."); raise typer.Exit(2)
     if allow_remote and "KODAND_ALLOWED_HOSTS" not in os.environ:
         # the console refuses Host headers it doesn't recognise (DNS-rebinding guard); a wildcard
         # bind can be reached under any name, so only a specific bound address is pinned
@@ -190,7 +190,7 @@ def mcp(agent: bool = typer.Option(False, '--agent', help="Serve a `kodand agent
     try:
         from kodand.mcpserver import run
     except ImportError:
-        c.print("[red]MCP dependencies missing.[/red] Install with: pip install 'kodand[mcp]'"); raise typer.Exit(2)
+        c.print("[red]MCP dependencies missing.[/red] Re-run ./install.sh from your Kodand clone; it installs every part."); raise typer.Exit(2)
     run(agent=agent)
 
 
@@ -221,7 +221,7 @@ def agent(once: bool = typer.Option(False, '--once', help='Run the jobs queued r
     try:
         import mcp as _  # noqa: F401 — each job's Claude run loads `kodand mcp --agent`
     except ImportError:
-        c.print("[red]MCP dependencies missing.[/red] Install with: pip install 'kodand[mcp]'"); raise typer.Exit(2)
+        c.print("[red]MCP dependencies missing.[/red] Re-run ./install.sh from your Kodand clone; it installs every part."); raise typer.Exit(2)
     if install_service:
         from kodand.agent import SERVICE_NAME
         from kodand.agent import install_service as install

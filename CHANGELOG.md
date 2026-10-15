@@ -18,7 +18,10 @@ Initial release.
 - Accuracy you can check: 1.00 precision and recall on the labelled corpus, and
   11 of 11 findings confirmed by hand on OpenA2A's damn-vulnerable-ai-agent
   (see `docs/BENCHMARK.md`).
-- Install with `pipx install "kodand[all]"`.
+- Install from the repository with `./install.sh` (Kodand isn't published on PyPI).
+- Free, open-source (MIT) software you run locally, not a hosted service: Claude
+  Agent and Ask AI-CLI use the Claude Code CLI on your machine with your own
+  Claude account.
 
 ### Detection
 - 64 YAML templates with literal, regex and decoded (base64/hex/URL) matching,
@@ -64,6 +67,14 @@ Initial release.
   `verify_finding`, `add_finding_comment` and `status`.
 - A project must be explicitly shared with MCP clients before any tool can see it.
 - A `kodand-mcp-scan` Claude Code skill that drives a scan end to end.
+
+### Installer
+- `install.sh` checks its dependencies first (Python 3.11.4+, pipx/uv/venv, tar,
+  git; Claude Code and systemd are reported as optional), offers to install the
+  missing ones through apt, dnf, yum, pacman, zypper or brew after a y/N prompt,
+  re-checks, and only then installs. It always installs everything
+  (`ui` + `mcp` + `code`), verifies the result, and prints next steps.
+  `--check` and `--yes` are supported.
 
 ### Ask AI-CLI
 - A finding's **Ask AI-CLI** button answers a question (or, with the box empty,

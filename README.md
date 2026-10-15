@@ -14,7 +14,7 @@ skills and tool descriptions, typosquatted MCP packages, unsafe code execution,
 scanner evasion and more, before any of it runs inside an agent.
 
 ```bash
-pipx install "kodand[all]"
+git clone https://github.com/varotariadarshit/Kodand.git && cd Kodand && ./install.sh
 kodand analyze ./my-skills --html report.html  # scan a folder or .zip/.tar.gz
 kodand ui                                      # or review findings in the web console
 ```
@@ -94,6 +94,9 @@ patterns, it doesn't prove exploitability.
   your own Claude Code for verification, one click per finding or
   automatically after a scan, using your own Claude login (no API key). See the
   [User Guide](USER_GUIDE.md#claude-agent--verifying-from-the-web-console).
+- **Your own Claude account, locally** — Claude Agent and Ask AI-CLI use the
+  Claude Code CLI on your machine with your own Claude login; see
+  [Using your own Claude account](#using-your-own-claude-account).
 - **Live Scans dashboard** — real-time per-file scan progress and
   AI-verification status, kept as durable history you can review (or delete)
   later instead of disappearing once a scan finishes.
@@ -195,13 +198,16 @@ definitions and OpenAPI Action schemas are not yet in scope.
 Requires Python 3.11.4+ on Linux or macOS. Windows isn't supported natively;
 use [WSL](https://learn.microsoft.com/windows/wsl/).
 
+Kodand isn't published on PyPI; install it from this repository:
+
 ```bash
-pipx install "kodand[all]"
+git clone https://github.com/varotariadarshit/Kodand.git
+cd Kodand && ./install.sh
 kodand
 ```
 
-Upgrade with `pipx upgrade kodand`. `uv tool install` and plain
-`pip install` work the same way. To install straight from GitHub instead:
+Upgrade with `git pull && ./install.sh`. Without a clone, pipx can install straight
+from GitHub (`uv tool install` takes the same spec):
 
 ```bash
 pipx install "kodand[all] @ git+https://github.com/varotariadarshit/Kodand.git"
@@ -214,8 +220,11 @@ pipx install "kodand[all] @ git+https://github.com/varotariadarshit/Kodand.git"
 | `code` | JavaScript/TypeScript code analysis (tree-sitter). Python analysis needs no extra |
 | `all` | All three |
 
-From a clone, `./install.sh` does the same (it installs `all` by default, or
-pass e.g. `./install.sh ui,mcp`). It uses [`pipx`](https://pipx.pypa.io) if
+From a clone, `./install.sh` does the same and always installs everything
+(`all`). It first lists the dependencies it needs (Python 3.11.4+, pipx/uv/venv,
+tar, git) and, after a y/N prompt, installs any that are missing with your package
+manager (`--check` only reports, `--yes` skips the prompt). Afterwards it checks that
+the web console, MCP server and code analysis import and prints the next steps. It uses [`pipx`](https://pipx.pypa.io) if
 available, then `uv tool install`, then a plain venv under
 `~/.local/share/kodand`, and restarts a running console service and MCP server so
 they pick up the new build.
@@ -313,6 +322,16 @@ capabilities: [credential-access, secret-output]
 risk: {title: AWS Access Key}
 recommendation: Never embed long-lived AWS keys; use scoped roles.
 ```
+
+## Using your own Claude account
+
+Kodand is free, open-source software under the [MIT License](LICENSE) that you
+install and run yourself, on your own machine; the web console only listens on
+localhost. It isn't a hosted or licensed service, and it doesn't provide, resell or
+proxy access to Claude. **Claude Agent** and **Ask AI-CLI** run the Claude Code CLI
+(`claude`) already installed on your machine, signed in with **your own Claude
+account**, so that usage is yours, under your own Claude plan and Anthropic's terms,
+the same as running `claude` yourself. Kodand never sees your Claude credentials.
 
 ## Contributing and security
 

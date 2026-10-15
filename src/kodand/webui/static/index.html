@@ -473,7 +473,7 @@ thead th{background:var(--surface-2);text-transform:uppercase;font-size:.7rem;le
 
       <div class="panel">
         <h2>Claude Agent</h2>
-        <div class="small muted" style="margin-bottom:16px">Verifies findings with your own Claude Code and Claude login — no API key. Run <code>kodand agent</code> in a terminal and leave it open: it picks up the findings you send from a report or a new scan one at a time, runs Claude Code on each, and adds the verdict as a comment. Nothing runs while no finding is waiting. It can only use Kodand's own tools, and only on projects shared with MCP agents above; review statuses stay yours to set.</div>
+        <div class="small muted" style="margin-bottom:16px">Verifies findings with your own Claude Code and Claude login — no API key. Run <code>kodand agent</code> in a terminal and leave it open: it picks up the findings you send from a report or a new scan one at a time, runs Claude Code on each, and adds the verdict as a comment. Nothing runs while no finding is waiting. It can only use Kodand's own tools, and only on projects shared with MCP agents above; review statuses stay yours to set.<br><span style="opacity:.8">Kodand is free MIT-licensed software running on your machine, not a hosted service: Claude Agent and Ask AI-CLI run the Claude Code CLI installed here, signed in with your own Claude account, so that usage falls under your own Claude plan and Anthropic's terms. Kodand never sees your Claude credentials.</span></div>
         <div class="f">
           <label>Status</label>
           <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">

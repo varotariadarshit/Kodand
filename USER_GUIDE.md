@@ -29,20 +29,30 @@ flags patterns, it doesn't prove exploitability.
 
 Requires **Python 3.11.4+** on Linux or macOS (on Windows, use WSL).
 
+Kodand isn't published on PyPI; install it from the repository:
+
 ```bash
-pipx install "kodand[all]"
+git clone https://github.com/varotariadarshit/Kodand.git
+cd Kodand && ./install.sh
 kodand version
 ```
 
-- `[all]` installs every optional part. Pick fewer if you like:
-  `ui` (web console — FastAPI/uvicorn), `mcp` (MCP server support) and `code`
-  (JavaScript/TypeScript code analysis via tree-sitter; Python analysis needs no
-  extra). `pipx install kodand` alone gives the CLI only.
-- Upgrade with `pipx upgrade kodand`. If an MCP client has
+- Without a clone: `pipx install "kodand[all] @ git+https://github.com/varotariadarshit/Kodand.git"`.
+  `[all]` installs every optional part: `ui` (web console — FastAPI/uvicorn), `mcp`
+  (MCP server support) and `code` (JavaScript/TypeScript code analysis via
+  tree-sitter; Python analysis needs no extra).
+- Upgrade with `git pull && ./install.sh`. If an MCP client has
   `kodand mcp` running, restart that client session afterwards so it picks up the
   new build (see the `status` MCP tool in section 6 to check).
-- From a clone: `./install.sh` installs `all` by default (or pass extras, e.g.
-  `./install.sh ui,mcp`). It uses [`pipx`](https://pipx.pypa.io) if available
+- From a clone: `./install.sh` first lists which dependencies are present (Python
+  3.11.4+, an installer such as pipx, tar, git, and optionally Claude Code and
+  systemd). If any are missing it warns that Kodand may not work as expected without
+  them and asks `y/N` before installing them with your package manager (apt, dnf,
+  yum, pacman, zypper or brew), then checks again. It then does the complete install
+  (web console, MCP server and code analysis), checks that all of it imports, and
+  prints the next steps, so nothing needs a reinstall later. `./install.sh --check`
+  only reports; `./install.sh --yes` doesn't ask. Claude Code is only reported, never
+  installed by the script. It uses [`pipx`](https://pipx.pypa.io) if available
   (falls back to `uv tool install`, then a plain venv under
   `~/.local/share/kodand`), restarts the `kodand-ui.service` systemd user service if
   you run the console that way, and stops running `kodand mcp` processes so MCP
@@ -224,7 +234,9 @@ Every finding in a report can be:
   Claude Agent it only accepts requests from the machine running the console
   (unless `KODAND_AGENT_ALLOW_REMOTE=1`), at most two answers run at once, and
   each has a 2-minute limit. The finding's files are sent to Anthropic under
-  your Claude login, as with Claude Agent.
+  your Claude login, as with Claude Agent — your own account and plan, see
+  [Claude Agent](#claude-agent--verifying-from-the-web-console) for the note on
+  using your own Claude account.
 - Sent to **Claude Agent** — your own Claude Code session verifies it with
   your own Claude login, no API key; see
   [Claude Agent](#claude-agent--verifying-from-the-web-console).
@@ -243,7 +255,7 @@ call Kodand as a tool directly from a terminal session — run scans, read
 findings, verify them — without touching the web console.
 
 ### One-time setup
-1. Install with MCP support: `pipx install "kodand[all]"` (or at
+1. Install with MCP support: `./install.sh` installs it (or at
    least the `mcp` extra).
 2. Register the server with your client. Easiest: web console → **Settings**
    → MCP Server section → click **Register** next to your
@@ -302,6 +314,14 @@ While a scan runs — whether kicked off via MCP or the web UI — it's visible
 live in the web console's **Live Scans** tab.
 
 ### Claude Agent — verifying from the web console
+
+> **Your own Claude account.** Kodand is free, open-source software under the [MIT License](LICENSE) that you
+> install and run yourself, on your own machine; the web console only listens on
+> localhost. It isn't a hosted or licensed service, and it doesn't provide, resell or
+> proxy access to Claude. **Claude Agent** and **Ask AI-CLI** run the Claude Code CLI
+> (`claude`) already installed on your machine, signed in with **your own Claude
+> account**, so that usage is yours, under your own Claude plan and Anthropic's terms,
+> the same as running `claude` yourself. Kodand never sees your Claude credentials.
 
 The MCP tools above are driven from the agent's side: you ask Claude Code to do
 something and it calls Kodand. Claude Agent works the other way round. You click
@@ -480,7 +500,7 @@ data-sharing acknowledgment first.
 ## 11. Troubleshooting
 
 - **`kodand ui` says Web UI dependencies missing** → reinstall with the `ui`
-  extra: `pipx install --force 'kodand[all]'`.
+  extra: re-run `./install.sh` from your clone, which installs every part.
 - **`kodand mcp` says MCP dependencies missing** → same, with the `mcp`
   extra.
 - **My agent doesn't see the kodand MCP tools** → confirm registration
