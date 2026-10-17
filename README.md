@@ -248,6 +248,52 @@ you run them that way, and stops running `kodand mcp` processes so they don't ke
 serving the old build — reconnect MCP clients afterwards (`/mcp` in Claude Code, or a
 new session).
 
+### macOS troubleshooting
+
+**`zsh: command not found: kodand`**: the install worked, but `~/.local/bin` isn't on
+your PATH. Copy and paste:
+
+```bash
+pipx ensurepath
+exec zsh
+kodand version
+```
+
+Installed with uv instead of pipx:
+
+```bash
+uv tool update-shell
+exec zsh
+kodand version
+```
+
+Installed with neither (plain venv):
+
+```bash
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
+exec zsh
+kodand version
+```
+
+**pipx says `'kodand' already seems to be installed`**: pipx kept the earlier install.
+Reinstall it:
+
+```bash
+pipx install --force "git+https://github.com/varotariadarshit/Kodand.git"
+kodand version
+```
+
+**Background services**: macOS has no systemd, so `kodand agent --install-service` and the
+`kodand-ui` service are Linux only. Run each of these in its own terminal window instead:
+
+```bash
+kodand ui
+```
+
+```bash
+kodand agent
+```
+
 ## CLI
 
 <img src="docs/assets/cli-analyze.svg" alt="kodand analyze output" width="720">
