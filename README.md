@@ -228,10 +228,10 @@ kodand
 ```
 
 Upgrade with `git pull && ./install.sh`. Without a clone, pipx can install straight
-from GitHub (`uv tool install` takes the same spec):
+from GitHub, with the same pinned dependency versions (see [Dependencies](#dependencies)):
 
 ```bash
-pipx install "git+https://github.com/varotariadarshit/Kodand.git"
+pipx install --pip-args="-c https://raw.githubusercontent.com/varotariadarshit/Kodand/master/requirements.txt" "git+https://github.com/varotariadarshit/Kodand.git"
 ```
 
 Either way you get everything: the CLI, the web console (`kodand ui`), the MCP server
@@ -293,6 +293,35 @@ kodand ui
 ```bash
 kodand agent
 ```
+
+## Dependencies
+
+Kodand tracks the exact version of every dependency it uses:
+
+- **[`requirements.txt`](requirements.txt)** pins the exact, tested version of every runtime
+  package, including the packages they depend on. `./install.sh` installs exactly these, and
+  security and dependency scanners read this file. The pinned set is checked with
+  [`pip-audit`](https://pypi.org/project/pip-audit/) before each update.
+- **`pyproject.toml`** sets the supported range (minimum and maximum version) of each direct
+  dependency, for anyone installing Kodand alongside other packages.
+
+| Package | Supported range | Pinned (tested) |
+|---|---|---|
+| `pydantic` | >=2.7, <3 | 2.14.1 |
+| `PyYAML` | >=6, <7 | 6.0.3 |
+| `rich` | >=13.7, <15 | 14.3.4 |
+| `typer` | >=0.12, <1 | 0.27.3 |
+| `python-docx` | >=1.1, <2 | 1.2.0 |
+| `reportlab` | >=4, <5 | 4.5.1 |
+| `fastapi` | >=0.110, <1 | 0.152.0 |
+| `uvicorn` | >=0.27, <1 | 0.54.0 |
+| `python-multipart` | >=0.0.9 | 0.0.32 |
+| `mcp` | >=1.2, <2 | 1.30.0 |
+| `tree-sitter` | >=0.21, <1 | 0.26.0 |
+| `tree-sitter-javascript` | >=0.21, <1 | 0.25.0 |
+| `tree-sitter-typescript` | >=0.21, <1 | 0.23.2 |
+
+Development only: `pytest` and `ruff` (`pip install -e ".[dev]"`). Python 3.11.4 or newer.
 
 ## CLI
 

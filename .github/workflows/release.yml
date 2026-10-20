@@ -26,7 +26,7 @@ jobs:
           test "v$version" = "$GITHUB_REF_NAME" || { echo "tag $GITHUB_REF_NAME != version v$version"; exit 1; }
       - name: Test
         run: |
-          pip install -e ".[dev]"
+          pip install -c requirements.txt -e ".[dev]"
           pytest -q
           kodand bench --no-banner
       - name: Build

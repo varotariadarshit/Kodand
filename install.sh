@@ -125,7 +125,19 @@ if command -v git >/dev/null 2>&1 && git -C "$ROOT" rev-parse --is-inside-work-t
      | tar --null -T - -cf -) | tar -xf - -C "$SRC"
 fi
 SPEC="$SRC"  # every part (web console, MCP server, code analysis) is a regular dependency
-if command -v pipx >/dev/null 2>&1;then pipx install --force "$SPEC";elif command -v uv >/dev/null 2>&1;then uv tool install --force "$SPEC";else ENV="$HOME/.local/share/kodand";python3 -m venv "$ENV";"$ENV/bin/python" -m pip install --upgrade pip setuptools wheel;"$ENV/bin/pip" install --force-reinstall "$SPEC";ln -sf "$ENV/bin/kodand" "$BIN/kodand";fi
+# install the exact, tested dependency versions pinned in requirements.txt (pyproject.toml only sets the
+# supported ranges), so every install runs the versions that were tested and audited
+if [ -f "$SRC/requirements.txt" ]; then
+  echo "Using the pinned dependency versions in requirements.txt."
+  # a mktemp copy: its path has no spaces, which pipx's --pip-args (split on whitespace, quotes
+  # stripped) can't carry
+  PINS="$(mktemp)"; cp "$SRC/requirements.txt" "$PINS"
+  trap 'rm -f "$PINS"; if [ "$SRC" != "$ROOT" ]; then rm -rf "$SRC"; fi' EXIT
+  PIPX_PINS=(--pip-args "-c $PINS"); UV_PINS=(--constraints "$PINS"); PIP_PINS=(-c "$PINS")
+else
+  PIPX_PINS=(); UV_PINS=(); PIP_PINS=()
+fi
+if command -v pipx >/dev/null 2>&1;then pipx install --force ${PIPX_PINS[@]+"${PIPX_PINS[@]}"} "$SPEC";elif command -v uv >/dev/null 2>&1;then uv tool install --force ${UV_PINS[@]+"${UV_PINS[@]}"} "$SPEC";else ENV="$HOME/.local/share/kodand";python3 -m venv "$ENV";"$ENV/bin/python" -m pip install --upgrade pip setuptools wheel;"$ENV/bin/pip" install --force-reinstall ${PIP_PINS[@]+"${PIP_PINS[@]}"} "$SPEC";ln -sf "$ENV/bin/kodand" "$BIN/kodand";fi
 VER="$(grep -m1 '^version=' "$SRC/pyproject.toml" | sed -E 's/version="([^"]+)"/\1/')"
 echo "Installed Kodand $VER (ui + mcp + code)."
 # prove the install is complete rather than assume it: import every optional dependency with the Python

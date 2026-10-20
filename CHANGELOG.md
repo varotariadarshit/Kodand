@@ -3,6 +3,15 @@
 All notable changes to this project are documented in this file.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+- `requirements.txt` pins the exact, tested version of every runtime dependency, including
+  transitive ones, so the versions in use are tracked and visible to security scanners.
+  `install.sh` installs exactly these; `pyproject.toml` keeps the supported ranges, and the
+  README lists both. Pins refreshed to the newest versions within the ranges (e.g. fastapi
+  0.152.0, pydantic 2.14.1, uvicorn 0.54.0), with no known vulnerabilities (`pip-audit`).
+
 ## [1.0.0] - 2026-10-15
 
 Initial release.

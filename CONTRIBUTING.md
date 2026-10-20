@@ -14,7 +14,7 @@ docs. For anything large, open an issue first so we can agree on the approach.
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
+pip install -c requirements.txt -e ".[dev]"
 ```
 
 ## Tests
@@ -42,6 +42,22 @@ actually fire (some phrasing legitimately triggers more than one category).
 ```bash
 ruff check .
 ```
+
+## Updating dependencies
+
+`requirements.txt` pins the exact version of every runtime dependency (what `install.sh` installs and
+what security scanners read); `pyproject.toml` keeps the supported ranges. To move to the newest
+versions within those ranges (needs [uv](https://docs.astral.sh/uv/)):
+
+```bash
+uv lock --upgrade
+uv export --frozen --no-hashes --no-emit-project --no-dev --no-header -o requirements.txt
+uvx pip-audit -r requirements.txt --no-deps --disable-pip   # no known vulnerabilities
+uv sync --extra dev --frozen && pytest -q && kodand bench
+```
+
+Then update the "Pinned (tested)" column of the README's Dependencies table;
+`tests/test_dependency_pins.py` fails until the pins, the ranges and the table agree.
 
 ## Adding a built-in template
 

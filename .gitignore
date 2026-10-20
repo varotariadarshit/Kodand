@@ -10,7 +10,8 @@ venv/
 .mypy_cache/
 .ruff_cache/
 *.log
-# CI and install.sh install with pip/pipx, so a uv lockfile would only drift
+# the tracked pins are requirements.txt (pip format, which install.sh and scanners read); a uv
+# lockfile is only a local tool for refreshing them (see CONTRIBUTING.md)
 uv.lock
 
 # scan output (generated, keep the folder via .gitkeep)
