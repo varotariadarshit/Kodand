@@ -421,7 +421,11 @@ recommendation: Never embed long-lived AWS keys; use scoped roles.
 
 ## 8. Suppressions (`.kodand.yml`)
 
-Drop at the repository root being scanned:
+Drop at the repository root being scanned. It is only applied when you trust the
+repository: pass `--trust-repo-suppressions` to `kodand analyze`, or turn on
+**Trust repo .kodand.yml** on the project page in the web console (MCP scans follow
+the same toggle; it can't be set through MCP). Without that, the scan ignores the
+file and the report says so, so a scanned skill pack can't hide its own findings.
 ```yaml
 suppressions:
   - rule: AST08-SCANNER-BYPASS
@@ -433,15 +437,18 @@ suppressions:
 ```
 Selectors: `rule` (template id), `category`, `path` (glob), or `finding`
 (finding id) — combine as needed. `expires` is optional; an expired
-suppression automatically reactivates the finding.
+suppression automatically reactivates the finding. Suppressions apply to each
+piece of evidence: `path: "docs/**"` hides a rule's hits under `docs/` but keeps
+the same rule's hits elsewhere, and a finding is only marked Suppressed when all
+of its evidence is covered.
 
 **From the web console.** On a False-positive verdict in a report, **Suppress…**
 saves a suppression to the *project* — this finding only, the rule in this file,
 the rule under this folder, or the rule anywhere in the project — with a reason
 and optional expiry. It's kept in Kodand's workspace (never written into your
-source), applies to every later scan of the project alongside the repo's own
-`.kodand.yml`, and marks the matching findings of the current scan Suppressed at
-once. Setting a finding's status to **Suppressed** in a report does the same for
+source), applies to every later scan of the project (alongside the repo's own
+`.kodand.yml` when you trust it), and marks the findings of the current scan that
+it fully covers Suppressed at once. Setting a finding's status to **Suppressed** in a report does the same for
 that one finding (setting it back lifts it). The project page lists them all, with
 delete and **Copy as .kodand.yml**; deleting one puts the findings it hid back to
 Pending Review, and later scans report them again.

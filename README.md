@@ -51,17 +51,23 @@ All automated findings are candidates requiring human validation; Kodand flags
 patterns, it doesn't prove exploitability.
 
 ## Highlights
-- **64 built-in YAML detection templates** across all three taxonomies
-  (48 AST + 8 MCP + 8 Hooks — see below), with literal + regex + decoded
+- **70 built-in YAML detection templates** across all three taxonomies
+  (54 AST + 8 MCP + 8 Hooks — see below), with literal + regex + decoded
   (base64/hex/URL) matching and a composite 0–100 confidence score per finding,
-  plus 18 structural rules (see the next two bullets) — 82 detection rules total.
+  plus 24 structural rules (see the next three bullets) — 94 detection rules total.
 - **Hidden-text and typosquat detection** — zero-width, bidi-control and
   Unicode tag characters (raw or written as HTML entities), and MCP server
   packages one or two characters away from an official package name.
 - **AST-level code analysis** — real parsing (not regex) of Python (stdlib
   `ast`) and JS/TS (tree-sitter, optional `code` extra) scripts referenced by
-  a skill: dynamic eval/exec, shell-injection shapes, hardcoded credentials,
+  a skill — and of the ```python / ```ts / ```json code blocks inside skill
+  markdown: dynamic eval/exec, shell-injection shapes, hardcoded credentials,
   and a same-function env-read → network-send exfiltration heuristic.
+- **Skill structure rules** — multi-line and frontmatter checks the line
+  templates can't express: an agent told to fetch or crawl a user-supplied URL
+  (indirect prompt injection), unscoped `allowed-tools: Bash` grants, hooks
+  declared in skill frontmatter, `` !`cmd` `` blocks that run when a skill loads,
+  malformed frontmatter, and symlinks pointing outside the repository.
 - **MCP server config & hook detection**, YAML *and* structural — `.mcp.json` /
   `claude_desktop_config.json` / `.claude/settings.json` are first-class scan
   targets: unpinned/shell launchers, wildcard permission grants, hardcoded
@@ -73,10 +79,12 @@ patterns, it doesn't prove exploitability.
   *own* `command` looks risky, and "Shadow MCP Servers" (MCP09) actually
   compares every configured server's launcher and name against every other
   one, instead of just checking a single string.
-- **Context-aware scoring** — Context Engine v2 understands frontmatter, fenced
-  code, and mitigation/detection/reference/example prose so non-actionable
-  lines don't inflate results; proximity and cross-file relationship signals
-  escalate genuinely suspicious co-occurrences instead.
+- **Context-aware scoring** — the context engine understands frontmatter, fenced
+  code, HTML comments, and mitigation/detection/reference/example prose so
+  non-actionable lines don't inflate results — but a keyword only demotes the
+  payload it actually governs, so "Recommended: curl … | bash" stays live;
+  proximity and cross-file relationship signals escalate genuinely suspicious
+  co-occurrences instead.
 - **Parallel scanning** — match files across multiple worker processes
   (`--workers N`, or the Parallel workers choice in the web console); sequential
   by default, identical output at any worker count. It helps on large
@@ -201,18 +209,23 @@ Content is content, whichever file format carries it:
 
 | Platform | File(s) |
 |---|---|
-| Claude Code | `SKILL.md`, `SKILLS.md` |
-| Google Gemini CLI | `GEMINI.md` |
-| Microsoft Copilot | `.github/copilot-instructions.md`, `.github/instructions/*.instructions.md` |
-| OpenAI / Codex | `AGENTS.md` |
-| Cursor | `.cursor/rules/*.mdc` |
-| Windsurf | `.windsurfrules` |
-| MCP servers | `.mcp.json`, `mcp.json`, `claude_desktop_config.json` |
-| Claude Code hooks | `.claude/settings.json`, `.claude/settings.local.json` |
+| Agent Skills (any tool) | `SKILL.md` / `SKILLS.md` in any skills dir (`.claude/skills`, `.agents/skills`, `.github/skills`, `.ai/skills`, …) |
+| Claude Code | `CLAUDE.md`, `CLAUDE.local.md`, `.claude/{rules,commands,agents}/**/*.md`, `.claude/settings(.local).json` hooks, `.claude-plugin/plugin.json`, plugin `hooks/hooks.json` |
+| OpenAI Codex | `AGENTS.md`, `AGENTS.override.md`, `AGENT.md`, `.codex/config.toml` (MCP), `.codex/hooks.json` |
+| Gemini CLI | `GEMINI.md`, `.gemini/settings.json` (MCP + hooks), `.gemini/commands/**/*.toml`, `gemini-extension.json` |
+| GitHub Copilot | `.github/copilot-instructions.md`, `.github/instructions/**/*.instructions.md`, `.github/prompts/*.prompt.md`, `.github/agents/*.agent.md`, `*.chatmode.md`, `.github/hooks/*.json`, `.vscode/mcp.json` |
+| Cursor | `.cursor/rules` (file or dir), `.cursorrules`, `.cursor/mcp.json`, `.cursor/hooks.json` |
+| Windsurf / Devin | `.windsurfrules`, `.windsurf/{rules,workflows}/`, `.devin/rules/`, `.devin/mcp_config.json`, `.codeium/` |
+| Cline, Roo, Continue, Junie, Kiro / Amazon Q, Zed, OpenCode | `.clinerules`, `.cline/`, `.roo/`, `.roomodes`, `.continue/`, `.junie/`, `.kiro/{steering,hooks,settings}`, `.amazonq/rules`, `.rules`, `opencode.json(c)` |
+| MCP servers | `.mcp.json`, `mcp.json`, `claude_desktop_config.json` (JSON, JSONC, TOML and YAML configs) |
 
-Referenced Python/JS/TS scripts get real AST-level parsing on top of the
-regular text/regex pass (see Highlights above). Subagent/slash-command
-definitions and OpenAPI Action schemas are not yet in scope.
+Paths match at any depth, so a folder upload, a GitHub zip's `<repo>-main/`
+wrapper or a monorepo package is scanned the same as a repository root. The
+full list lives in `src/kodand/entrypoints.py`; a directory that looks like
+agent configuration but matches nothing raises a coverage warning in the
+report. Referenced Python/JS/TS scripts get real AST-level parsing on top of
+the regular text/regex pass (see Highlights above). OpenAPI Action schemas are
+not yet in scope.
 
 ## Install
 
@@ -328,8 +341,8 @@ Development only: `pytest` and `ruff` (`pip install -e ".[dev]"`). Python 3.11.4
 <img src="docs/assets/cli-analyze.svg" alt="kodand analyze output" width="720">
 
 ```bash
-kodand templates list                 # 64 YAML templates, with Literals + Regex columns
-                                      # (plus 18 structural AST/JSON rules not listed here)
+kodand templates list                 # 70 YAML templates, with Literals + Regex columns
+                                      # (plus 24 structural AST/JSON/markdown rules not listed here)
 kodand templates scan /path/to/repo   # shows match kind (literal/regex/decoded)
 kodand analyze /path/to/repo \
   --output output/analysis.json --html output/report.html \
@@ -343,7 +356,7 @@ kodand bench /path/to/corpus           # or your own labeled corpus
 
 | Benchmark | Result |
 | --- | --- |
-| Built-in labelled corpus (`kodand bench`): 54 samples, 50 labelled detections | Precision 1.00 · Recall 1.00 |
+| Built-in labelled corpus (`kodand bench`): 63 samples, 63 labelled detections | Precision 1.00 · Recall 1.00 |
 | [damn-vulnerable-ai-agent](https://github.com/opena2a-org/damn-vulnerable-ai-agent) 0.9.3, every finding reviewed by hand | 11 findings, 11 true positives, 0 false positives |
 
 The built-in corpus is Kodand's own, so the real-world scan is the check that
@@ -398,6 +411,12 @@ required for verification. Setup, the full tool reference, and the
 `verify_finding` vs. `add_finding_comment` distinction are in the [user guide](https://github.com/varotariadarshit/Kodand/blob/master/USER_GUIDE.md).
 
 ## Suppression example (`.kodand.yml` at repo root)
+
+A scanned repository's own `.kodand.yml` is **ignored unless you trust it**:
+`kodand analyze --trust-repo-suppressions`, or the project's **Trust repo
+.kodand.yml** toggle in the web console (MCP scans follow that toggle). This
+stops a malicious skill pack from shipping a file that hides its own findings.
+Console suppressions are kept outside the repo and always apply.
 ```yaml
 suppressions:
   - rule: AST08-SCANNER-BYPASS

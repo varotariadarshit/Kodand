@@ -6,11 +6,51 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- Discovery of current agent artifacts across platforms: CLAUDE.md, Claude Code
+  rules/commands/subagents/plugins, `.agents/skills`, Codex `config.toml`/hooks, Gemini
+  `settings.json`/commands, Copilot prompts/agents/hooks/`.vscode/mcp.json`, Cursor hooks
+  and plain-file rules, Windsurf/Devin, Cline, Roo, Continue, Junie, Kiro/Amazon Q, Zed and
+  OpenCode (`src/kodand/entrypoints.py`). Paths match at any depth.
+- Structural markdown rules: fenced code blocks get AST analysis; untrusted URL fetches
+  into agent context (AST05-UNTRUSTED-FETCH); unscoped `allowed-tools` shell grants;
+  frontmatter hooks; `` !`cmd` `` load-time commands; malformed frontmatter; symlinks
+  escaping the repository.
+- New templates: approval bypass (`--yolo`, `--dangerously-skip-permissions`,
+  `approval_policy=never`, "without asking"), outward writes (`gh release create`,
+  `npm publish`, `terraform apply`…), credential stores (`.env`, `~/.netrc`, browser
+  profiles, keychain), inline secrets, data exfiltration (DNS, netcat, request
+  catchers, `curl -d @~/.aws/…`) and persistence (cron, shell rc files, launch agents).
+- Coverage warnings in the HTML report, CLI, MCP result and console: unrecognised agent
+  directories, oversized files, regex time-outs, clipped lines, ignored repo suppressions.
+- `kodand analyze --trust-repo-suppressions` and a per-project console toggle.
 - `requirements.txt` pins the exact, tested version of every runtime dependency, including
   transitive ones, so the versions in use are tracked and visible to security scanners.
   `install.sh` installs exactly these; `pyproject.toml` keeps the supported ranges, and the
   README lists both. Pins refreshed to the newest versions within the ranges (e.g. fastapi
   0.152.0, pydantic 2.14.1, uvicorn 0.54.0), with no known vulnerabilities (`pip-audit`).
+
+### Changed
+- A scanned repository's `.kodand.yml` is ignored unless explicitly trusted.
+- Suppressions match individual occurrences; `path:` scopes no longer hide a rule's
+  evidence in other files, and suppressing one rule no longer hides a rule merged with it.
+- Context keywords ("never", "e.g.", "see documentation"…) only demote the payload they
+  govern; frontmatter is only a line-1 block, and its description/hooks/allowed-tools are
+  live; HTML comments are scanned as hidden, actionable text.
+- More file types are scanned (shell variants, mjs/tsx, Dockerfile, `.env*`, shebang
+  scripts); binary files are skipped and UTF-16 files decoded.
+- AST10 cross-platform path/file mentions are informational.
+- The scan cache is keyed by content and analyser, and invalidated by any template or
+  engine change; `kodand bench` never uses it.
+- `kodand templates scan` uses the same pipeline as `kodand analyze`.
+
+### Fixed
+- Folder uploads and GitHub zips no longer hide root-anchored files such as
+  `.github/copilot-instructions.md` or `.claude/settings.json`.
+- Skills in folders named `build` or `dist` are no longer skipped; supporting-file
+  listings no longer pull in `node_modules`, `.git` or virtualenvs.
+- Payloads padded past 2,000 characters on a line are still matched.
+- False positives: `curl -s` to localhost (was critical), `rm -rf` of build output,
+  "delete from the list", bare `gcloud` mentions, Jest "auto-update snapshots".
 
 ## [1.0.0] - 2026-10-15
 

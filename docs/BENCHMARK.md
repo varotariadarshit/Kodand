@@ -15,7 +15,7 @@ kodand bench /path/to/your/corpus
 
 | Corpus | Samples | Labelled detections | Precision | Recall | F1 |
 | --- | --- | --- | --- | --- | --- |
-| `src/kodand/builtin_corpus` | 54 (41 malicious, 13 benign) | 50 | 1.00 | 1.00 | 1.00 |
+| `src/kodand/builtin_corpus` | 63 (49 malicious, 14 benign) | 63 | 1.00 | 1.00 | 1.00 |
 
 Each sample is a small skill folder under `malicious/` or `benign/`, and
 `manifest.yaml` lists the categories each one must (and must only) produce. A

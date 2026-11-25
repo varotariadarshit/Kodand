@@ -56,7 +56,7 @@ pythonpath=["src"]
 addopts="-q"
 [tool.setuptools.package-data]
 # "*" skips dotfiles, and every MCP/hook corpus sample is a .mcp.json or .claude/settings.json
-kodand = ["builtin_templates/**/*.yaml","webui/static/*","builtin_corpus/**/*","builtin_corpus/**/.*","builtin_corpus/**/.claude/*"]
+kodand = ["builtin_templates/**/*.yaml","webui/static/*","builtin_corpus/**/*","builtin_corpus/**/.*","builtin_corpus/**/.*/*"]
 [tool.ruff]
 target-version="py311"
 line-length=200
