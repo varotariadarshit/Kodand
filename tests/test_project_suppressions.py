@@ -152,3 +152,22 @@ def test_deleting_a_suppression_reports_its_findings_again(scanned):
     store.delete_project_suppression(pid, 0)
     assert store.get_review(pid, sid)[fid]["status"] == "needs-review"
     assert store.sync_status_suppressions(pid) == []  # and it doesn't come back on the next sync
+
+
+def test_repo_suppression_trust_toggle(scanned, tmp_path):
+    from fastapi.testclient import TestClient
+
+    from kodand.webui.server import app
+    pid, *_ = scanned
+    (tmp_path / "repo" / ".kodand.yml").write_text("suppress_rules: [AST02-REMOTE-EXEC]\n")
+    c = TestClient(app)
+    c.post("/api/auth/login", json={"password": store.DEFAULT_PASSWORD})
+    c.post("/api/auth/change-password", json={"current_password": store.DEFAULT_PASSWORD, "new_password": "test-password-123"})
+    # untrusted by default: the repo's own .kodand.yml can't hide its findings
+    first = mcpserver.scan(path=str(tmp_path / "repo"), project=pid)
+    assert first["suppressed"] == 0 and any(w["code"] == "REPO_SUPPRESSIONS_IGNORED" for w in first["warnings"])
+    r = c.put(f"/api/projects/{pid}/repo-suppressions", json={"trusted": True})
+    assert r.status_code == 200 and r.json()["trust_repo_suppressions"] is True
+    second = mcpserver.scan(path=str(tmp_path / "repo"), project=pid)
+    assert second["suppressed"] >= 1
+    assert c.put("/api/projects/nope/repo-suppressions", json={"trusted": True}).status_code == 404
