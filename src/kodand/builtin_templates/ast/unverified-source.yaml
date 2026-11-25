@@ -11,6 +11,9 @@ detection:
   - download from
   - install from the url
   regex:
+  - \bpip3?\s+install\s+(?:-[\w-]{1,30}\s+){0,4}(?:git\+|https?://)
+  - \b(?:npm|pnpm|yarn)\s+(?:install|i|add)\s+(?:-[\w-]{1,30}\s+){0,4}(?:git\+|https?://|github:)
+  - \bgo\s+install\s+[\w./-]+@latest\b
   - (?:download|fetch|install)\s+(?:it\s+|the\s+(?:skill|package|script|payload)\s+)?from\s+(?:this|the|a)\s+(?:url|link|site|repo)
 capabilities:
 - supply-chain

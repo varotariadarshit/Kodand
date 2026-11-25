@@ -1,7 +1,7 @@
 id: AST10-PLATFORM-FILES
 info:
   name: Platform Manifest Reuse
-  severity: low
+  severity: informational
   confidence: medium
   category: AST10
 detection:

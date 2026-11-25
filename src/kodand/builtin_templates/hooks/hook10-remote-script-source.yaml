@@ -6,7 +6,7 @@ info:
   category: HOOK10
 detection:
   regex:
-  - "\"command\"\\s*:\\s*\"[^\"\\n]*(?:curl|wget)[^\"\\n]*\\|\\s*(?:sh|bash|python3?|node)\\b[^\"\\n]*\""
+  - "\"(?:command|bash|powershell)\"\\s*:\\s*\"[^\"\\n]*(?:curl|wget)[^\"\\n]*\\|\\s*(?:sh|bash|python3?|node)\\b[^\"\\n]*\""
 capabilities:
 - data-exfiltration
 - shell-execution

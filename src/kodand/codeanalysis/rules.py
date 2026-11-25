@@ -72,6 +72,42 @@ CODE_RULES: dict[str, KodandTemplate] = {
               ["scanner-evasion"],
               "Obfuscated/packed code defeats human review — ship readable source and build "
               "artifacts separately, with the build step reproducible from source."),
+        # --- markdown / frontmatter structural rules (markdown_rules.py) ---
+        _rule("AST05-UNTRUSTED-FETCH", "Untrusted Web Content Pulled Into Agent Context", "medium", "medium", "AST05",
+              ["external-instruction", "network-access"],
+              "The skill tells the agent to fetch or crawl a URL that comes from the user, an issue or another "
+              "untrusted source. Whatever that page says lands in the agent's context and can carry injected "
+              "instructions (indirect prompt injection). Treat fetched content strictly as data: summarise or "
+              "extract fields only, never follow instructions found in it, restrict fetching to an allow-list of "
+              "domains, and avoid pairing web fetching with an unrestricted shell. Escalated to high when the "
+              "skill also tells the agent to follow/run what it reads, or grants an unscoped shell tool."),
+        _rule("AST09-PRELOAD-SHELL", "Shell Command Runs When the Skill Loads", "medium", "high", "AST09",
+              ["shell-execution"],
+              "A `!`command`` block runs in the user's shell as soon as the skill or command is invoked, before "
+              "the model or the user sees its output. Keep these to read-only, local, side-effect-free commands "
+              "(git status, ls); never fetch from the network, read credentials or pipe into a shell. Escalated "
+              "to high for network, credential, eval or pipe-to-shell commands."),
+        _rule("AST03-BROAD-TOOL-GRANT", "Unrestricted Shell Tool Grant", "medium", "high", "AST03",
+              ["shell-execution"],
+              "`allowed-tools` pre-approves an unscoped shell (`Bash`, `Bash(*)`), so every command the skill "
+              "leads the agent to run executes without a permission prompt. Scope the grant to the exact "
+              "commands needed, e.g. `Bash(git status:*)`. Escalated to high when web fetch/search tools are "
+              "granted alongside it: untrusted web content plus an unprompted shell is a direct injection path."),
+        _rule("HOOK02-FRONTMATTER-HOOK", "Hook Declared in Skill or Agent Frontmatter", "medium", "medium", "HOOK02",
+              ["shell-execution"],
+              "Hooks declared in a skill's or subagent's frontmatter run shell commands automatically while it "
+              "is active, and are easy to miss because they don't live in settings.json. Review every command; "
+              "prefer project-level hooks that go through normal review. Escalated to high for network, "
+              "credential, eval or pipe-to-shell commands."),
+        _rule("AST04-MALFORMED-FRONTMATTER", "Malformed or Missing Skill Frontmatter", "low", "low", "AST04",
+              [],
+              "Fix the YAML frontmatter block (`---` / name / description / `---`). Malformed metadata can make "
+              "platforms parse the skill differently from what a reviewer sees, or skip its restrictions."),
+        _rule("AST08-SYMLINK-ESCAPE", "Symlink Pointing Outside the Repository", "high", "high", "AST08",
+              ["credential-access", "scanner-evasion"],
+              "A file in the skill is a symbolic link to a path outside the repository (e.g. ~/.ssh/id_rsa). "
+              "When the agent reads the 'reference' it reads that target instead, and static scans never see "
+              "its content. Replace the link with the real file content, or remove it."),
     ]
 }
 CODE_RULES_LIST: list[KodandTemplate] = list(CODE_RULES.values())

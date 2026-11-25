@@ -1,0 +1,30 @@
+id: AST01-PERSISTENCE
+info:
+  name: Persistence Mechanism
+  severity: high
+  confidence: medium
+  category: AST01
+detection:
+  match:
+  - Library/LaunchAgents
+  - Library/LaunchDaemons
+  - .config/autostart
+  - CurrentVersion\Run
+  regex:
+  - \bcrontab\s+(?:-[a-z]\s+){0,2}-\s*(?:$|<|\|)
+  - \(\s*crontab\s+-l\b[^\n]{0,120}?\|\s*crontab\b
+  - '>>?\s*["'']?(?:~|\$HOME)?/?\.(?:bashrc|zshrc|bash_profile|profile|zprofile|zshenv|config/fish/config\.fish)\b'
+  - \b(?:echo|printf|cat|tee\s+-a)\b[^\n]{0,120}?(?:~|\$HOME)/\.(?:bashrc|zshrc|bash_profile|profile|zprofile)\b
+  - \blaunchctl\s+(?:load|bootstrap|enable)\b
+  - \bsystemctl\s+(?:--user\s+)?enable\b
+  - /etc/cron\.(?:d|daily|hourly)/
+  - \b(?:Register-ScheduledTask|schtasks\s+/create)\b
+  - \bgit\s+config\s+(?:--global\s+)?core\.hooksPath\b
+capabilities:
+- filesystem-write
+- privilege-escalation
+risk:
+  title: Persistence
+recommendation: A skill should not install itself to run again outside the agent session (cron jobs, shell
+  startup files, launch agents, systemd units, scheduled tasks, global git hook paths). Remove the step, or
+  make it an explicit, documented install action the user runs themselves.

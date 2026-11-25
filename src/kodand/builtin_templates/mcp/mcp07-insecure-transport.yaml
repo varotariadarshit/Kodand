@@ -6,7 +6,8 @@ info:
   category: MCP07
 detection:
   regex:
-  - "\"url\"\\s*:\\s*\"http://(?!localhost|127\\.0\\.0\\.1|\\[::1\\])"
+  - "^\\s*(?:url|server_url|endpoint)\\s*=\\s*\"http://(?!localhost|127\\.0\\.0\\.1|\\[::1\\])"
+  - "\"(?:url|serverUrl|httpUrl|endpoint)\"\\s*:\\s*\"http://(?!localhost|127\\.0\\.0\\.1|\\[::1\\])"
 capabilities:
 - network-access
 risk:

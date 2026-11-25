@@ -6,16 +6,23 @@ info:
   category: AST09
 detection:
   match:
-  - rm -rf
   - drop table
   - truncate table
-  - delete from
   - force push
-  - git push -f
   regex:
-  - rm\s+-[a-z]*r[a-z]*f[a-z]*\b
-  - rm\s+-[a-z]*f[a-z]*r[a-z]*\b
+  - \brm\s+-(?:[a-z]*r[a-z]*f|[a-z]*f[a-z]*r)[a-z]*\b(?!\s+["'`]?(?:\./)?(?:[\w.-]{1,60}/){0,4}(?:dist|build|out|target|node_modules|coverage|\.cache|\.next|\.nuxt|\.svelte-kit|\.angular|\.parcel-cache|\.turbo|__pycache__|tmp|\.pytest_cache|\.mypy_cache)/?(?:\*)?(?:["'`)]|\s|$|;|&))
+  - \brm\s+(?:-r\s+-f|-f\s+-r|--recursive\s+--force|--force\s+--recursive)\b
   - DROP\s+(?:TABLE|DATABASE|SCHEMA)\b
+  - \bdelete\s+from\s+[\w."`\[\]]+\s*(?:where\b|;|$)
+  - \bgit\s+push\b[^\n]{0,80}?\s(?:--force(?:-with-lease)?|-f)\b
+  - \bgit\s+reset\s+--hard\b
+  - \bgit\s+clean\s+-(?:[a-z]*f[a-z]*d|[a-z]*d[a-z]*f)
+  - \bgit\s+branch\s+-D\b
+  - \bkubectl\s+delete\b
+  - \bterraform\s+destroy\b
+  - \bgh\s+repo\s+delete\b
+  - \bmkfs(?:\.\w+)?\s+/dev/
+  - \bdd\s+[^\n]{0,40}of=/dev/(?:sd|nvme|disk|hd)
 capabilities:
 - approval-bypass
 - filesystem-write

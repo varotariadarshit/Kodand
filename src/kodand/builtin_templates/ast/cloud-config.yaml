@@ -9,7 +9,6 @@ detection:
   - ~/.azure
   - .config/gcloud
   - azureprofile.json
-  - gcloud
   - ~/.kube
   - kubeconfig
   regex:

@@ -13,6 +13,9 @@ detection:
   - 'curl -l '
   regex:
   - pip\s+install\s+\S+\s+--upgrade\b
+  - \b(?:npx|pnpx|bunx)\s+(?:-y|--yes)\s+(?:@[\w.-]+/)?[\w.-]+(?:@(?:latest|next|canary))?(?=\s|$|["'`])
+  - \buvx\s+(?!--)(?:[\w.-]+)(?=\s|$|["'`])(?!\S*==)
+  - \bpipx\s+run\s+(?!--)[\w.-]+(?=\s|$|["'`])
 capabilities:
 - update-drift
 - supply-chain

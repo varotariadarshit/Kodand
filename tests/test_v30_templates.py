@@ -10,7 +10,7 @@ def test_builtin_pack_loads_all_categories():
 
     root = files("kodand").joinpath("builtin_templates")
     templates = load_templates(root)
-    assert len(templates) == 64
+    assert len(templates) == 70
     ids = [t.id for t in templates]
     assert len(ids) == len(set(ids))
 

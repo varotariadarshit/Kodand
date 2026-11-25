@@ -6,13 +6,10 @@ info:
   category: AST07
 detection:
   match:
-  - auto-update
-  - self-update
   - silently update
   - update in the background
-  - auto upgrade
   regex:
-  - (?:auto|self|silent(?:ly)?)[\s-]?(?:update|upgrad(?:e|ing))\b
+  - (?:auto|self|silent(?:ly)?)[\s-]?(?:update|upgrad(?:e|ing))\b(?!\s+(?:the\s+|all\s+|obsolete\s+)?(?:jest\s+|vitest\s+)?snapshots?)
 capabilities:
 - update-drift
 risk:

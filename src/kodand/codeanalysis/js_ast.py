@@ -12,6 +12,7 @@ import tree_sitter_javascript as tsjs
 import tree_sitter_typescript as tsts
 
 from kodand.codeanalysis.rules import CODE_RULES
+from kodand.codeanalysis.secrets import is_credential_key, looks_like_placeholder
 from kodand.redaction import redact
 from kodand.templates.confidence import calculate_confidence
 from kodand.templates.matcher import TemplateMatch
@@ -228,6 +229,15 @@ def _walk(node, hits: list, source_len: int, cp: tuple[set, set]) -> None:
                 and len(value.text) >= 10):
             hits.append(_Hit("AST03-JS-HARDCODED-CREDENTIAL", node, _snippet(node)))
 
+    elif node.type == "pair":
+        key = node.child_by_field_name("key")
+        value = node.child_by_field_name("value")
+        if key is not None and _is_literal(value) and key.type in ("property_identifier", "string"):
+            key_text = key.text.decode("utf-8", "replace")
+            val_text = (_string_value(value) or "")
+            if len(val_text) >= 6 and is_credential_key(key_text) and not looks_like_placeholder(val_text):
+                hits.append(_Hit("AST03-JS-HARDCODED-CREDENTIAL", node, _snippet(node)))
+
     elif node.type in _FUNCTION_TYPES:
         if _has_source(node):
             sink = _find_sink(node)
@@ -256,7 +266,16 @@ def analyze_js_file(file_path: Path, repository_root: Path) -> list[TemplateMatc
         relative_path = file_path.relative_to(repository_root).as_posix()
     except ValueError:
         relative_path = file_path.as_posix()
+    return analyze_js_source(source, relative_path, suffix)
 
+
+def analyze_js_source(source: bytes, relative_path: str, suffix: str = ".ts", line_offset: int = 0,
+                      context: str = _CONTEXT) -> list[TemplateMatch]:
+    """`analyze_js_file` on in-memory source — e.g. a ```ts fence inside a markdown
+    file, with `line_offset` mapping fence lines back to the file."""
+    lang_fn = _LANGS.get(suffix)
+    if lang_fn is None:
+        return []
     try:
         language = tree_sitter.Language(lang_fn())
         parser = tree_sitter.Parser(language)
@@ -275,10 +294,10 @@ def analyze_js_file(file_path: Path, repository_root: Path) -> list[TemplateMatc
         matches.append(TemplateMatch(
             template_id="AST04-JS-OBFUSCATED-CODE", category=CODE_RULES["AST04-JS-OBFUSCATED-CODE"].info.category,
             severity=CODE_RULES["AST04-JS-OBFUSCATED-CODE"].info.severity,
-            confidence=calculate_confidence(CODE_RULES["AST04-JS-OBFUSCATED-CODE"].info.confidence, _CONTEXT),
-            file=relative_path, line=1, column_start=1, column_end=1,
+            confidence=calculate_confidence(CODE_RULES["AST04-JS-OBFUSCATED-CODE"].info.confidence, context),
+            file=relative_path, line=1 + line_offset, column_start=1, column_end=1,
             matched_value="[packer signature]", excerpt="[packer signature detected in file]",
-            context=_CONTEXT, match_kind="ast", decoded_from=None,
+            context=context, match_kind="ast", decoded_from=None,
         ))
 
     for hit in hits:
@@ -286,10 +305,10 @@ def analyze_js_file(file_path: Path, repository_root: Path) -> list[TemplateMatc
         line, col_start, col_end = _pos(hit.node)
         matches.append(TemplateMatch(
             template_id=hit.rule_id, category=rule.info.category, severity=rule.info.severity,
-            confidence=calculate_confidence(rule.info.confidence, _CONTEXT),
-            file=relative_path, line=line, column_start=col_start + 1, column_end=col_end + 1,
+            confidence=calculate_confidence(rule.info.confidence, context),
+            file=relative_path, line=line + line_offset, column_start=col_start + 1, column_end=col_end + 1,
             matched_value=redact(hit.snippet), excerpt=redact(hit.snippet),
-            context=_CONTEXT, match_kind="ast", decoded_from=None,
+            context=context, match_kind="ast", decoded_from=None,
         ))
     return matches
 

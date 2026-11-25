@@ -6,7 +6,6 @@ info:
   category: AST07
 detection:
   match:
-  - :latest
   - '@main'
   - '@master'
   - '@head'

@@ -44,7 +44,7 @@ def _repo(tmpdir):
 
 def test_meta_has_regex_and_46():
     m = client.get("/api/meta").json()
-    assert m["builtin_templates"] == 64 and m["regex_indicators"] >= 5
+    assert m["builtin_templates"] == 70 and m["regex_indicators"] >= 5
     assert "kodand-logo-full.png" in client.get("/").text
 
 

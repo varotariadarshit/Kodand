@@ -6,13 +6,15 @@ info:
   category: AST02
 detection:
   match:
-  - curl attacker
-  - 'wget -q -o- '
-  - iwr -useb
-  - 'curl -s '
   - invoke-expression
   regex:
-  - curl\s+\S+\s*\|\s*(?:bash|sh)
+  - \b(?:curl|wget)\b[^\n|]{0,200}\|\s*(?:sudo\s+(?:-\S{1,20}\s+){0,3})?(?:ba|z|da|k)?sh\b
+  - \b(?:curl|wget)\b[^\n|]{0,200}\|\s*(?:sudo\s+)?(?:python[23]?|node|perl|ruby|php)\b(?!\s+-m\s+json)
+  - \b(?:ba|z)?sh\s+(?:-c\s+)?["']?<\(\s*(?:curl|wget)\b
+  - \b(?:ba|z)?sh\s+-c\s+["']?\$\(\s*(?:curl|wget)\b
+  - \beval\s+["']?\$\(\s*(?:curl|wget)\b
+  - \b(?:iex|invoke-expression)\b[^\n]{0,40}\b(?:irm|iwr|invoke-webrequest|invoke-restmethod|downloadstring|net\.webclient)\b
+  - \b(?:irm|iwr|invoke-webrequest|invoke-restmethod)\b[^\n|]{0,200}\|\s*(?:iex|invoke-expression)\b
 capabilities:
 - network-access
 - shell-execution

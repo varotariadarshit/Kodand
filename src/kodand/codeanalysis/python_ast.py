@@ -8,6 +8,7 @@ import re
 from pathlib import Path
 
 from kodand.codeanalysis.rules import CODE_RULES
+from kodand.codeanalysis.secrets import is_credential_key, looks_like_placeholder
 from kodand.redaction import redact
 from kodand.templates.confidence import calculate_confidence
 from kodand.templates.matcher import TemplateMatch
@@ -105,6 +106,22 @@ class _RiskVisitor(ast.NodeVisitor):
                 and _SECRET_NAME_RE.search(target.id)):
             self._record("AST03-PY-HARDCODED-CREDENTIAL", value, f"{target.id} = \"...\"")
 
+    def _check_credential_pair(self, key: str | None, value, node):
+        if (key and isinstance(value, ast.Constant) and isinstance(value.value, str)
+                and len(value.value) >= 6 and is_credential_key(key)
+                and not looks_like_placeholder(value.value)):
+            self._record("AST03-PY-HARDCODED-CREDENTIAL", node, f"{key}=\"...\"")
+
+    def visit_Dict(self, node: ast.Dict):
+        for k, v in zip(node.keys, node.values):
+            if isinstance(k, ast.Constant) and isinstance(k.value, str):
+                self._check_credential_pair(k.value, v, v)
+        self.generic_visit(node)
+
+    def visit_keyword(self, node: ast.keyword):
+        self._check_credential_pair(node.arg, node.value, node.value)
+        self.generic_visit(node)
+
     def visit_Assign(self, node: ast.Assign):
         for target in node.targets:
             self._check_hardcoded_credential(target, node.value)
@@ -145,6 +162,13 @@ def analyze_python_file(file_path: Path, repository_root: Path) -> list[Template
         relative_path = file_path.relative_to(repository_root).as_posix()
     except ValueError:
         relative_path = file_path.as_posix()
+    return analyze_python_source(source, relative_path)
+
+
+def analyze_python_source(source: str, relative_path: str, line_offset: int = 0,
+                          context: str = _CONTEXT) -> list[TemplateMatch]:
+    """`analyze_python_file` on in-memory source — e.g. a ```python fence inside a
+    markdown file, with `line_offset` mapping fence lines back to the file."""
     try:
         tree = ast.parse(source)
     except (SyntaxError, ValueError, RecursionError, MemoryError):
@@ -161,10 +185,10 @@ def analyze_python_file(file_path: Path, repository_root: Path) -> list[Template
         col_end = getattr(node, "end_col_offset", col_start + len(snippet))
         matches.append(TemplateMatch(
             template_id=rule_id, category=rule.info.category, severity=rule.info.severity,
-            confidence=calculate_confidence(rule.info.confidence, _CONTEXT),
-            file=relative_path, line=line, column_start=col_start + 1, column_end=col_end + 1,
+            confidence=calculate_confidence(rule.info.confidence, context),
+            file=relative_path, line=line + line_offset, column_start=col_start + 1, column_end=col_end + 1,
             matched_value=redact(snippet), excerpt=redact(snippet),
-            context=_CONTEXT, match_kind="ast", decoded_from=None,
+            context=context, match_kind="ast", decoded_from=None,
         ))
     return matches
 

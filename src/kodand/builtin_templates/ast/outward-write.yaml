@@ -1,0 +1,28 @@
+id: AST09-OUTWARD-WRITE
+info:
+  name: Outward-Facing Write Action
+  severity: medium
+  confidence: medium
+  category: AST09
+detection:
+  regex:
+  - \bgh\s+(?:release\s+(?:create|upload|edit|delete)|repo\s+(?:create|edit|rename|archive)|pr\s+merge|secret\s+set|workflow\s+run)\b
+  - \bgh\s+api\b[^\n]{0,120}?\s(?:-X|--method)\s+(?:POST|PUT|PATCH|DELETE)\b
+  - \b(?:npm|pnpm|yarn(?:\s+npm)?|bun)\s+publish\b
+  - \btwine\s+upload\b
+  - \b(?:cargo|gem|poetry|flit|hatch)\s+publish\b
+  - \bgem\s+push\b
+  - \bdocker\s+push\b
+  - \bterraform\s+apply\b
+  - \bkubectl\s+(?:apply|create|replace|patch|scale|rollout\s+restart)\b
+  - \bhelm\s+(?:install|upgrade|uninstall)\b
+  - \baws\s+s3\s+(?:cp|sync|mv|rm)\b[^\n]{0,80}s3://
+  - \bgit\s+push\s+(?:-u\s+)?(?:origin\s+)?(?:main|master|production|prod|release)\b
+capabilities:
+- approval-bypass
+- filesystem-write
+risk:
+  title: Outward-Facing Write
+recommendation: This skill tells the agent to publish, release, deploy or push to a shared branch using
+  whatever credentials are in its environment. Require an explicit human confirmation step before the
+  action, run it with narrowly scoped short-lived credentials, and prefer letting CI perform releases.

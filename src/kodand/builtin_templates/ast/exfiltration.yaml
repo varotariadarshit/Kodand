@@ -1,0 +1,30 @@
+id: AST01-DATA-EXFIL
+info:
+  name: Data Exfiltration Pattern
+  severity: high
+  confidence: high
+  category: AST01
+detection:
+  match:
+  - webhook.site
+  - requestbin
+  - pipedream.net
+  - burpcollaborator.net
+  - interact.sh
+  - canarytokens
+  regex:
+  - \b(?:curl|wget|http|https|xh)\b[^\n]{0,200}?(?:@["']?(?:~|\$HOME)?/?\.?(?:ssh|aws|env|netrc|npmrc|docker|kube|config/gh|git-credentials|gnupg)|\$\(\s*(?:env|printenv|cat\s+[^)\n]{0,80}?(?:\.env|\.ssh|\.aws|credentials|id_rsa|id_ed25519|\.netrc)))
+  - \bwget\b[^\n]{0,120}?--post-file[= ]
+  - \b(?:dig|nslookup|host|ping)\b[^\n]{0,80}?\$\(
+  - \|\s*(?:nc|ncat|netcat|socat)\s+(?:-\w+\s+){0,3}[\w.-]+\s+\d{2,5}\b
+  - \b(?:scp|rsync|sftp)\b[^\n]{0,80}?(?:~|\$HOME)/\.(?:ssh|aws|gnupg|kube|docker)\b
+  - \boast\.(?:pro|live|site|online|fun|me)\b
+  - '!\[[^\]\n]{0,80}\]\(https?://[^)\s]{0,200}?(?:\{\{|\$\{|\$\(|%7B%7B)'
+capabilities:
+- data-exfiltration
+- network-access
+risk:
+  title: Data Exfiltration
+recommendation: This sends local data (credentials, environment, files) to an external endpoint, or uses an
+  out-of-band channel (DNS lookups, netcat, request-catcher services, templated image URLs) that is a classic
+  exfiltration shape. Remove it; a skill should never transmit local secrets or files off the machine.

@@ -506,7 +506,12 @@ def analyze_json_file(file_path: Path, repository_root: Path) -> list[TemplateMa
         relative_path = file_path.relative_to(repository_root).as_posix()
     except ValueError:
         relative_path = file_path.as_posix()
+    return analyze_json_source(source, relative_path)
 
+
+def analyze_json_source(source: str, relative_path: str, line_offset: int = 0) -> list[TemplateMatch]:
+    """`analyze_json_file` on in-memory source — e.g. a ```json fence inside a
+    markdown file, with `line_offset` mapping fence lines back to the file."""
     root = parse(source)
     if root is None or root.kind != "object":
         return []
@@ -526,7 +531,7 @@ def analyze_json_file(file_path: Path, repository_root: Path) -> list[TemplateMa
         matches.append(TemplateMatch(
             template_id=hit.rule_id, category=rule.info.category, severity=hit.severity or rule.info.severity,
             confidence=calculate_confidence(rule.info.confidence, _CONTEXT),
-            file=relative_path, line=hit.line, column_start=hit.col, column_end=hit.col + 1,
+            file=relative_path, line=hit.line + line_offset, column_start=hit.col, column_end=hit.col + 1,
             matched_value=redact(hit.snippet), excerpt=redact(hit.snippet),
             context=_CONTEXT, match_kind="json-struct", decoded_from=None,
         ))

@@ -6,7 +6,7 @@ info:
   category: HOOK08
 detection:
   regex:
-  - "\"command\"\\s*:\\s*\"[^\"\\n]*(?:\\.ssh/id_rsa|\\.aws/credentials|\\.netrc|\\.env)[^\"\\n]*\""
+  - "\"(?:command|bash|powershell)\"\\s*:\\s*\"[^\"\\n]*(?:\\.ssh/id_rsa|\\.aws/credentials|\\.netrc|\\.env)[^\"\\n]*\""
 capabilities:
 - credential-access
 - filesystem-read

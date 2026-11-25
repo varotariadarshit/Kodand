@@ -6,7 +6,9 @@ info:
   category: HOOK03
 detection:
   regex:
-  - "\"command\"\\s*:\\s*\"[^\"\\n]*(?:curl|wget)[^\"\\n]*https?://[^\"\\n]*\""
+  - "\"(?:command|bash|powershell)\"\\s*:\\s*\"[^\"\\n]*\\|\\s*(?:nc|ncat|netcat|socat)\\s"
+  - "\"(?:command|bash|powershell)\"\\s*:\\s*\"[^\"\\n]*(?:python3?|node|perl|ruby)\\s+-[ce]\\s[^\"\\n]*(?:urlopen|requests\\.|http\\.request|fetch\\(|socket|net\\.connect|Net::HTTP|LWP)"
+  - "\"(?:command|bash|powershell)\"\\s*:\\s*\"[^\"\\n]*(?:curl|wget)[^\"\\n]*https?://[^\"\\n]*\""
 capabilities:
 - data-exfiltration
 - network-access

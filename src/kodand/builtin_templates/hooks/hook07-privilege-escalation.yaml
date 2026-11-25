@@ -6,7 +6,7 @@ info:
   category: HOOK07
 detection:
   regex:
-  - "\"command\"\\s*:\\s*\"[^\"\\n]*(?:\\bsudo\\b|\\bdoas\\b|\\bpkexec\\b|chmod\\s+\\+s|chmod\\s+4[0-7]{3}|--privileged)[^\"\\n]*\""
+  - "\"(?:command|bash|powershell)\"\\s*:\\s*\"[^\"\\n]*(?:\\bsudo\\b|\\bdoas\\b|\\bpkexec\\b|chmod\\s+\\+s|chmod\\s+4[0-7]{3}|--privileged)[^\"\\n]*\""
 capabilities:
 - privilege-escalation
 - shell-execution

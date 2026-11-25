@@ -8,7 +8,7 @@ detection:
   match:
   - ":(){ :|:& };:"
   regex:
-  - "\"command\"\\s*:\\s*\"[^\"\\n]*(?:while\\s+true|dd\\s+if=/dev/zero|dd\\s+if=/dev/random|yes\\s+[^\"\\n]*>)[^\"\\n]*\""
+  - "\"(?:command|bash|powershell)\"\\s*:\\s*\"[^\"\\n]*(?:while\\s+true|dd\\s+if=/dev/zero|dd\\s+if=/dev/random|yes\\s+[^\"\\n]*>)[^\"\\n]*\""
 capabilities:
 - resource-abuse
 - shell-execution

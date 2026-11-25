@@ -6,7 +6,7 @@ info:
   category: HOOK02
 detection:
   regex:
-  - "\"command\"\\s*:\\s*\"(?:/bin/)?(?:ba)?sh\\s+-c\\b"
+  - "\"(?:command|bash|powershell)\"\\s*:\\s*\"(?:/bin/)?(?:ba)?sh\\s+-c\\b"
 capabilities:
 - shell-execution
 risk:

@@ -6,7 +6,9 @@ info:
   category: MCP05
 detection:
   regex:
-  - "\"command\"\\s*:\\s*\"(?:/bin/)?(?:ba)?sh\""
+  - "\"command\"\\s*:\\s*\"(?:/(?:usr/)?bin/)?(?:ba|z|da|k|fi)?sh\""
+  - "\"command\"\\s*:\\s*\"(?:[A-Za-z]:\\\\[^\"]*\\\\)?(?:cmd|powershell|pwsh)(?:\\.exe)?\""
+  - "^\\s*command\\s*=\\s*\"(?:/(?:usr/)?bin/)?(?:ba|z|da|k|fi)?sh\""
 capabilities:
 - shell-execution
 risk:

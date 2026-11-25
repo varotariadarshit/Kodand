@@ -6,7 +6,7 @@ info:
   category: HOOK06
 detection:
   regex:
-  - "\"command\"\\s*:\\s*\"[^\"\\n]*(?:>>\\s*[^\"\\n]*\\.claude/settings\\.json|>>\\s*[^\"\\n]*\\.claude/settings\\.local\\.json|>>\\s*[^\"\\n]*\\.bashrc|>>\\s*[^\"\\n]*\\.zshrc|>>\\s*[^\"\\n]*\\.profile|crontab\\s+-|systemctl\\s+enable|launchctl\\s+load)[^\"\\n]*\""
+  - "\"(?:command|bash|powershell)\"\\s*:\\s*\"[^\"\\n]*(?:>>\\s*[^\"\\n]*\\.claude/settings\\.json|>>\\s*[^\"\\n]*\\.claude/settings\\.local\\.json|>>\\s*[^\"\\n]*\\.bashrc|>>\\s*[^\"\\n]*\\.zshrc|>>\\s*[^\"\\n]*\\.profile|crontab\\s+-|systemctl\\s+enable|launchctl\\s+load)[^\"\\n]*\""
 capabilities:
 - filesystem-write
 - isolation-escape

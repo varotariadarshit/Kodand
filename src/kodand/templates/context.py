@@ -29,7 +29,7 @@ import re
 
 WARNING_KEYWORDS = ("never", "do not", "don't", "must not", "should not",
                     "avoid", "forbidden", "prohibited", "not allowed")
-EXAMPLE_KEYWORDS = ("example:", "for example:", "e.g.", "sample:", "for instance")
+EXAMPLE_KEYWORDS = ("example:", "for example", "e.g.", "sample:", "for instance")
 # "recommended" on its own is deliberately NOT here: "Recommended: curl … | bash" is an
 # instruction, not a mitigation — only contrastive/remediation phrasing counts
 MITIGATION_KEYWORDS = ("to prevent", "to mitigate", "mitigation", "remediation",
@@ -56,7 +56,7 @@ _FM_KEY = re.compile(r"^([A-Za-z0-9_.-]+)\s*:")
 
 # a keyword only demotes a match it GOVERNS: it precedes the match, in the same
 # clause, within a few words, and is not part of the matched text itself
-GOVERN_MAX_WORDS = 8
+GOVERN_MAX_WORDS = 12
 _CLAUSE_BREAK = re.compile(
     r"[.;!?](?=\s|$)|:(?=\s)|\s[-\u2013\u2014]\s|\u2014"
     r"|,\s*(?:then|and|so|but|now|next|run|execute|use|call|invoke|type|paste|do|always|instead)\b"

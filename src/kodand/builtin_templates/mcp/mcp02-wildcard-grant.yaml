@@ -6,10 +6,12 @@ info:
   category: MCP02
 detection:
   match:
-  - --allow-all
-  - --dangerously-skip-permissions
   - '"trust": "always"'
   regex:
+  - "\"[^\"\\n]*--(?:dangerously-skip-permissions|allow-all)\\b[^\"\\n]*\""
+  - "\"(?:alwaysAllow|autoApprove)\"\\s*:\\s*(?:true|\\[\\s*\"\\*\")"
+  - "\"trust\"\\s*:\\s*true"
+  - "^\\s*(?:trust|auto_approve|always_allow)\\s*=\\s*(?:true|\\[)"
   - "\"autoApprove\"\\s*:\\s*\\[\\s*\"\\*\"\\s*\\]"
 capabilities:
 - approval-bypass

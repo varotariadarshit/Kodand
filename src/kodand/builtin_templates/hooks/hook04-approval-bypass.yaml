@@ -5,9 +5,8 @@ info:
   confidence: high
   category: HOOK04
 detection:
-  match:
-  - --dangerously-skip-permissions
-  - --allow-all
+  regex:
+  - "\"(?:command|bash|powershell)\"\\s*:\\s*\"[^\"\\n]*(?:--dangerously-skip-permissions|--dangerously-bypass-approvals-and-sandbox|--allow-all|--yolo)\\b"
 capabilities:
 - approval-bypass
 risk:

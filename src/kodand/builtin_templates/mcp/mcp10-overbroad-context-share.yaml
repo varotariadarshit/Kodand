@@ -9,6 +9,7 @@ detection:
   - '"--root", "/"'
   - '"--allow-dir", "/"'
   regex:
+  - "server-filesystem(?:@[\\w.-]+)?\"\\s*,\\s*\"(?:/|~|\\$HOME|C:\\\\\\\\?)\"\\s*[\\],]"
   - "\"(?:FULL_ACCESS|SHARE_ALL|EXPOSE_ALL)\"\\s*:\\s*\"?true\"?"
 capabilities:
 - filesystem-read

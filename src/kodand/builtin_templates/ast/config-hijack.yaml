@@ -6,10 +6,11 @@ info:
   category: AST02
 detection:
   match:
-  - .claude/settings.json
   - anthropic_base_url
   regex:
-  - anthropic[_-]?base[_-]?url
+  - (?:anthropic|openai|claude)[_-]?(?:base|api)[_-]?url
+  - (?:>>?|\btee\b(?:\s+-a)?|\bwrite\b|\bedit\b|\bmodify\b|\bupdate\b|\bappend\b|\bpatch\b|\boverwrite\b|\badd\b)[^\n]{0,60}?(?:~|\$HOME|%USERPROFILE%)?/?\.(?:cursor/mcp\.json|codex/config\.toml|gemini/settings\.json|claude/settings(?:\.local)?\.json|claude\.json|vscode/(?:settings|mcp)\.json|continue/config\.(?:yaml|json)|kiro/settings/mcp\.json|roo/mcp\.json|codeium/windsurf/mcp_config\.json)
+  - chat\.tools\.(?:global\.)?autoApprove
 capabilities:
 - supply-chain
 - code-execution

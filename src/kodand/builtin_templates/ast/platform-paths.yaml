@@ -1,7 +1,7 @@
 id: AST10-PLATFORM-PATHS
 info:
   name: Platform-Specific Config Path
-  severity: low
+  severity: informational
   confidence: high
   category: AST10
 detection:

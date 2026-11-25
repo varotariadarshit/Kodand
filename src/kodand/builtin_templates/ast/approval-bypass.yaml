@@ -1,0 +1,26 @@
+id: AST09-APPROVAL-BYPASS
+info:
+  name: Agent Permission Prompts Disabled
+  severity: high
+  confidence: high
+  category: AST09
+detection:
+  match:
+  - --dangerously-skip-permissions
+  - --dangerously-bypass-approvals-and-sandbox
+  - bypassPermissions
+  - --allow-all-tools
+  - --trust-all-tools
+  regex:
+  - (?<![\w-])--(?:yolo|full-auto)\b
+  - approval[_-]policy["']?\s*[:=]\s*["']?never\b
+  - --ask-for-approval[= ]+never\b
+  - (?<![\w-])-?-auto-approve\b(?!\s*=\s*false)
+  - (?:without|don'?t|do\s+not|never|no\s+need\s+to|skip)\s+(?:ever\s+)?(?:ask(?:ing)?|prompt(?:ing)?|confirm(?:ing)?|check(?:ing)?\s+with|wait(?:ing)?\s+for)\s+(?:the\s+user|them|for\s+(?:confirmation|approval|permission)|before\s+(?:running|executing|pushing|deleting|publishing))
+capabilities:
+- approval-bypass
+risk:
+  title: Permission Prompts Disabled
+recommendation: Keep the agent's permission prompts on. Don't launch agents with --dangerously-skip-permissions,
+  --yolo, --full-auto, bypassPermissions or approval_policy=never, and don't instruct the agent to act without
+  asking. Pre-approve the specific, narrow commands a workflow needs instead.

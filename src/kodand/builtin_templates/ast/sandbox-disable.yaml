@@ -13,6 +13,15 @@ detection:
   - seccomp=unconfined
   regex:
   - seccomp\s*[:=]\s*unconfined
+  - apparmor\s*[:=]\s*unconfined
+  - --sandbox[= ]+["']?danger-full-access
+  - sandbox_mode\s*=\s*["']danger-full-access
+  - --dangerously-bypass-approvals-and-sandbox
+  - sandbox\.enabled["']?\s*[:=]\s*false
+  - '"sandbox"\s*:\s*(?:false|\{[^}\n]*"enabled"\s*:\s*false)'
+  - \s-v\s+["']?/:/[\w/]*
+  - --volume[= ]["']?/:/[\w/]*
+  - --cap-add[= ](?:ALL|SYS_ADMIN)\b
 capabilities:
 - isolation-escape
 risk:

@@ -22,6 +22,7 @@ from kodand.codeanalysis import ANALYZABLE_EXTENSIONS, analyze_file
 from kodand.codeanalysis.hidden_text import RULE_ID as HIDDEN_TEXT_RULE_ID
 from kodand.codeanalysis.hidden_text import find_hidden_text
 from kodand.codeanalysis.json_rules import JSON_RULES_LIST
+from kodand.codeanalysis.markdown_rules import analyze_markdown_source, is_markdown_like
 from kodand.codeanalysis.rules import CODE_RULES, CODE_RULES_LIST
 from kodand.models.analysis import (
     CorrelatedFinding,
@@ -138,6 +139,10 @@ def _scan_one_file(file_path_str: str):
         # structural findings from a real parser (see kodand.codeanalysis), not the
         # text/regex templates above — merged into the same per-file result shape
         for m in analyze_file(file_path, _worker_root):
+            out.setdefault(m.template_id, []).append(m)
+    elif is_markdown_like(file_path.name, file_path.suffix):
+        # fenced code blocks, frontmatter, multi-line fetch/follow correlation
+        for m in analyze_markdown_source(text, relative_path, file_path.name):
             out.setdefault(m.template_id, []).append(m)
 
     return relative_path, out, content_hash, False
@@ -306,6 +311,22 @@ def run_template_scan(repo_path: str, use_custom: bool, custom_dir: Path | None,
             for tid, ms in matches_by_tid.items():
                 grouped.setdefault(tid, []).extend(ms)
                 all_caps.extend(tmap[tid].capabilities)
+
+        # symlinks escaping the repository: never followed or scanned (see
+        # copy_snapshot/scan file selection), so report the link itself
+        seen_links = set()
+        for ext in inv.extensions:
+            for sf in ext.supporting_files:
+                if sf.is_symlink and sf.escapes_repository and sf.relative_path not in seen_links:
+                    seen_links.add(sf.relative_path)
+                    rule = tmap["AST08-SYMLINK-ESCAPE"]
+                    shown = f"{sf.relative_path} -> {sf.symlink_target}"
+                    grouped.setdefault(rule.id, []).append(TemplateMatch(
+                        template_id=rule.id, category=rule.info.category, severity=rule.info.severity,
+                        confidence=rule.info.confidence, file=sf.relative_path, line=1, column_start=1,
+                        column_end=1, matched_value=shown, excerpt=shown, context="instruction",
+                        match_kind="structural", decoded_from=None))
+                    all_caps.extend(rule.capabilities)
 
         findings: list[CorrelatedFinding] = []
         for tid, ms in grouped.items():

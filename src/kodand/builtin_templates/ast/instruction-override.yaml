@@ -14,6 +14,12 @@ detection:
   - forget your instructions
   regex:
   - (?:ignore|disregard|forget|override)\s+(?:all\s+)?(?:the\s+)?(?:previous|prior|earlier|system|your|operator'?s?)\s+instructions?
+  - \b(?:ignore|disregard|forget|override|bypass)\s+(?:any|all|every)?\s*(?:of\s+)?(?:the\s+|your\s+|my\s+)?(?:above|previous|prior|earlier|preceding|existing|original|system|developer|safety)\b[^.\n]{0,25}?\b(?:instructions?|rules|directions|guidelines|guidance|prompts?|constraints|policies)\b
+  - \b(?:ignore|disregard|forget)\s+everything\s+(?:above|before|previously|you\s+were\s+told)
+  - \btakes?\s+precedence\s+over\s+(?:all|any|the|your)\s+(?:other\s+|previous\s+|prior\s+|system\s+){0,2}(?:instructions?|rules|prompts?|guidelines)
+  - \bfrom\s+now\s+on,?\s+you\s+(?:are|will|must|should|have)\b
+  - \byou\s+are\s+no\s+longer\s+(?:bound|an?\s+assistant|restricted|claude|chatgpt)
+  - <\s*/?\s*(?:IMPORTANT|SYSTEM|ADMIN|INSTRUCTIONS?|SYSTEM_PROMPT)\s*>
 capabilities:
 - instruction-override
 risk:

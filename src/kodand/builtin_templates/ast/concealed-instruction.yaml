@@ -14,6 +14,9 @@ detection:
   - (?:do\s+not|don'?t|never)\s+(?:mention|reveal|disclose)\s+(?:these|this|the|any)\s+instructions?
   - (?:hide|conceal|keep)\s+(?:this|these|it)\s+(?:secret\s+|hidden\s+)?from\s+the\s+user
   - you\s+are\s+now\s+in\s+[\w -]{2,30}\s+mode
+  - (?:do\s+not|don'?t|never)\s+(?:mention|report|log|disclose|reveal|show|announce|surface)\s+(?:this|these|that|the)\s+(?:step|action|command|request|change|file|upload|call)s?\b
+  - \bsilently\b[^.\n]{0,40}?\b(?:send|upload|post|copy|exfiltrat\w*|transmit|forward|install)\b
+  - without\s+(?:the\s+user|them|anyone)\s+(?:knowing|noticing|seeing)
   - '(?<![\w-])system\s+(?:instruction|override|directive)s?\s*:'
 capabilities:
 - instruction-override
