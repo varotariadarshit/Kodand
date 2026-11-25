@@ -18,12 +18,21 @@ def _skill_relative(path: str, root_path: str) -> str:
 
 
 def _match_entrypoint(path, root):
-    """(platform, extension_type, parser, rel) for a registered agent artifact, else None.
+    """(spec, rel) for a registered agent artifact, else None.
     Patterns match at any depth (see kodand.entrypoints), so a wrapper directory from a
     folder upload or a GitHub zip never hides `.github/copilot-instructions.md` & co."""
     rel = path.relative_to(root).as_posix()
     spec = match_entrypoint(rel)
-    return (spec.platform, spec.extension_type, spec.parser, rel) if spec else None
+    return (spec, rel) if spec else None
+
+
+def _owns_folder(entry: Path, spec, root: Path) -> bool:
+    """Whether `entry`'s whole folder is the artifact (and so gets scanned): true for a
+    bundle (a skill dir, a hooks dir, a plugin manifest dir), false for instruction /
+    rules / command files and MCP configs. A repo-root `AGENTS.md` must not turn the
+    application's source tree into "supporting files" — that's a SAST scan, not an
+    agent assessment. Only a skill may claim the repo root (a repo that IS one skill)."""
+    return spec.bundle and (entry.parent != root or spec.extension_type == "agent-skill")
 
 
 _looks_like_entrypoint = looks_like_entrypoint
@@ -59,7 +68,10 @@ def _agent_dir_warning(files, root, extensions):
     holding text files of which none was recognised as, or sits under, an entrypoint —
     e.g. a new tool's skills layout the registry doesn't know yet."""
     covered = {e.entrypoint for e in extensions}
-    covered_dirs = {e.root_path for e in extensions}
+    covered |= {r for e in extensions for r in e.referenced_files}
+    # a recognised artifact inside a dir vouches for that dir; one at the repo root
+    # (a root AGENTS.md / .mcp.json) vouches for nothing below it
+    covered_dirs = {e.root_path for e in extensions if e.root_path not in ("", ".")}
     unrecognised = Counter()
     for p in files:
         if not p.is_file() or p.suffix.lower() not in {".md", ".mdc", ".txt", ".json", ".yaml", ".yml", ".toml", ""}:
@@ -67,9 +79,7 @@ def _agent_dir_warning(files, root, extensions):
         rel = p.relative_to(root).as_posix()
         parts = rel.split("/")
         idx = next((i for i, part in enumerate(parts[:-1]) if part.lower() in AGENT_DIR_NAMES), None)
-        if idx is None or rel in covered:
-            continue
-        if any(d in ("", ".") or rel.startswith(d + "/") for d in covered_dirs):
+        if idx is None or rel in covered or any(rel.startswith(d + "/") for d in covered_dirs):
             continue
         unrecognised["/".join(parts[:idx + 1])] += 1
     if not unrecognised:
@@ -96,10 +106,13 @@ def inventory_repository(path):
         match = _match_entrypoint(e, root)
         if not match:
             continue
-        platform, ext_type, parser, rel = match
+        spec, rel = match
+        platform, ext_type = spec.platform, spec.extension_type
         raw_text = e.read_text(errors="replace")
-        pa = parser(raw_text)
-        sup = [build_artifact(x, root) for x in iter_tree(e.parent) if x != e and (x.is_file() or x.is_symlink())]
+        pa = spec.parser(raw_text)
+        owns_folder = _owns_folder(e, spec, Path(root))
+        sup = [build_artifact(x, root) for x in iter_tree(e.parent)
+               if x != e and (x.is_file() or x.is_symlink())] if owns_folder else []
         root_path = e.parent.relative_to(root).as_posix()
         skill_rel_map = {_skill_relative(sf.relative_path, root_path): sf.relative_path for sf in sup}
         undeclared = [skill_rel_map[x] for x in find_undeclared_files(raw_text, list(skill_rel_map))]
@@ -107,7 +120,8 @@ def inventory_repository(path):
         # that's never a broken reference, so it's a known file for this check only
         broken = find_broken_references(raw_text, e.parent, [*skill_rel_map, e.name])
         # referenced from the entrypoint, inside the repo but outside its folder: scanned too
-        external = [r for r in find_external_references(raw_text, e.parent, Path(root)) if r not in skill_rel_map.values()]
+        external = [r for r in find_external_references(raw_text, e.parent, Path(root), bundle=owns_folder)
+                    if r not in skill_rel_map.values() and r != rel]
         broken = [b for b in broken if not any(x.endswith(b.lstrip("./")) for x in external)]
         inv.extensions.append(AgentExtension(
             extension_id=platform + '-' + hashlib.sha256(rel.encode()).hexdigest()[:16], platform=platform,

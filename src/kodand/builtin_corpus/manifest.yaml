@@ -50,6 +50,7 @@ samples:
   malicious/codex-insecure-mcp: [MCP07]
   benign/safe-doc: []
   benign/dev-workflow: []
+  benign/app-with-agents-md: []
   benign/calc: []
   benign/negation-heavy: []
   benign/multi-file-safe: []

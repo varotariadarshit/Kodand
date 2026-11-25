@@ -141,3 +141,12 @@ def test_ast_code_analysis_finding_reaches_the_report(tmp_path):
     analysis = json.loads((tmp_path / "out" / "analysis.json").read_text())
     rule_ids = {f["rule_id"] for f in analysis["findings"]}
     assert "AST04-PY-EVAL-EXEC" in rule_ids
+
+
+def test_run_targets_are_extracted_from_execution_wording():
+    from kodand.relationships import extract_run_targets
+    text = ("Run `python tools/check.py --fast`, then `node scripts/build.js`.\n"
+            "```\nbash ./setup.sh\npowershell -ExecutionPolicy Bypass -File scripts/a.ps1\n./bin/run.ts\n```\n"
+            "Routes are in `server.ts`; shared helpers in ../shared/util.py.\n")
+    assert extract_run_targets(text) == {"tools/check.py", "scripts/build.js", "./setup.sh", "scripts/a.ps1",
+                                         "./bin/run.ts"}

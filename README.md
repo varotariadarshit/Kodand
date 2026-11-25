@@ -227,6 +227,17 @@ report. Referenced Python/JS/TS scripts get real AST-level parsing on top of
 the regular text/regex pass (see Highlights above). OpenAPI Action schemas are
 not yet in scope.
 
+**Scope is agent content, not the application.** Kodand is not a SAST tool:
+- a skill folder, a hooks directory or a plugin manifest directory is scanned
+  as a whole — everything in it ships with the artifact;
+- an instruction, rules or command file (`AGENTS.md`, `CLAUDE.md`,
+  `.github/copilot-instructions.md`, `.cursor/rules`…) or an MCP config is
+  scanned on its own — its folder, often the repository root, is not;
+- outside those, Kodand follows only what an artifact points the agent at:
+  markdown/text docs it refers to, shell scripts, and files it tells the agent
+  to run (`python tools/x.py`, `node scripts/y.js`, `./bin/setup.ts`). A bare
+  mention of application code (`routes live in server.ts`) is not followed.
+
 ## Install
 
 Requires Python 3.11.4+ on Linux or macOS. Windows isn't supported natively;
@@ -356,7 +367,7 @@ kodand bench /path/to/corpus           # or your own labeled corpus
 
 | Benchmark | Result |
 | --- | --- |
-| Built-in labelled corpus (`kodand bench`): 63 samples, 63 labelled detections | Precision 1.00 · Recall 1.00 |
+| Built-in labelled corpus (`kodand bench`): 64 samples, 63 labelled detections | Precision 1.00 · Recall 1.00 |
 | [damn-vulnerable-ai-agent](https://github.com/opena2a-org/damn-vulnerable-ai-agent) 0.9.3, every finding reviewed by hand | 11 findings, 11 true positives, 0 false positives |
 
 The built-in corpus is Kodand's own, so the real-world scan is the check that

@@ -46,10 +46,17 @@ OPENCODE = "opencode"
 
 @dataclass(frozen=True)
 class EntrypointSpec:
+    """`bundle`: the entrypoint's folder IS the artifact (a skill folder, a plugin
+    manifest dir, a hooks dir), so every file in it is agent content and gets scanned.
+    Instruction/rules/command files and MCP configs are NOT bundles: they often sit at
+    the repo root or in `.github/`, and treating their folder as the artifact turns the
+    scan into a whole-repo application-code (SAST) scan. For those, only the file
+    itself plus the docs and scripts it points the agent at are scanned."""
     platform: str
     extension_type: str
     parser: Callable
     patterns: tuple[str, ...]
+    bundle: bool = False
 
 
 _MD = parse_generic_markdown
@@ -57,7 +64,7 @@ _FM = parse_skill_text
 
 ENTRYPOINTS: tuple[EntrypointSpec, ...] = (
     # --- skills: the Agent Skills standard, read from .claude/.agents/.github/.cursor/.gemini/... skills dirs
-    EntrypointSpec(CLAUDE, "agent-skill", _FM, ("skill.md", "skills.md")),
+    EntrypointSpec(CLAUDE, "agent-skill", _FM, ("skill.md", "skills.md"), bundle=True),
 
     # --- Claude Code
     EntrypointSpec(CLAUDE, "agent-command", _MD, (".claude/commands/**/*.md",)),
@@ -65,9 +72,9 @@ ENTRYPOINTS: tuple[EntrypointSpec, ...] = (
     EntrypointSpec(CLAUDE, "agent-rule", _MD, (".claude/rules/**/*.md",)),
     EntrypointSpec(CLAUDE, "agent-context", _MD, ("claude.md", "claude.local.md")),
     EntrypointSpec(CLAUDE, "hook-config", parse_hook_settings,
-                   (".claude/settings.json", ".claude/settings.local.json")),
+                   (".claude/settings.json", ".claude/settings.local.json"), bundle=True),
     EntrypointSpec(CLAUDE, "plugin-manifest", parse_mcp_config,
-                   (".claude-plugin/plugin.json", ".claude-plugin/marketplace.json")),
+                   (".claude-plugin/plugin.json", ".claude-plugin/marketplace.json"), bundle=True),
 
     # --- GitHub Copilot (VS Code, coding agent, CLI)
     EntrypointSpec(COPILOT, "agent-instructions", _MD,
@@ -76,13 +83,13 @@ ENTRYPOINTS: tuple[EntrypointSpec, ...] = (
                    (".github/prompts/**/*.prompt.md", ".github/agents/**/*.agent.md",
                     ".github/chatmodes/**/*.chatmode.md", "*.chatmode.md")),
     EntrypointSpec(COPILOT, "hook-config", parse_hook_settings,
-                   (".github/hooks/*.json", ".github/copilot/settings.json", ".github/copilot/settings.local.json")),
+                   (".github/hooks/*.json", ".github/copilot/settings.json", ".github/copilot/settings.local.json"), bundle=True),
     EntrypointSpec(COPILOT, "mcp-config", parse_mcp_config, (".vscode/mcp.json", ".copilot/mcp-config.json")),
 
     # --- OpenAI Codex
     EntrypointSpec(OPENAI, "agent-context", _MD, ("agents.md", "agents.override.md", "agents.local.md", "agent.md")),
     EntrypointSpec(OPENAI, "mcp-config", parse_toml_config, (".codex/config.toml",)),
-    EntrypointSpec(OPENAI, "hook-config", parse_hook_settings, (".codex/hooks.json",)),
+    EntrypointSpec(OPENAI, "hook-config", parse_hook_settings, (".codex/hooks.json",), bundle=True),
 
     # --- Gemini CLI
     EntrypointSpec(GEMINI, "agent-context", _MD, ("gemini.md",)),
@@ -91,14 +98,14 @@ ENTRYPOINTS: tuple[EntrypointSpec, ...] = (
 
     # --- Cursor (`.cursor/rules` may itself be a plain file, not only a dir of .mdc)
     EntrypointSpec(CURSOR, "mcp-config", parse_mcp_config, (".cursor/mcp.json",)),
-    EntrypointSpec(CURSOR, "hook-config", parse_hook_settings, (".cursor/hooks.json",)),
+    EntrypointSpec(CURSOR, "hook-config", parse_hook_settings, (".cursor/hooks.json",), bundle=True),
     EntrypointSpec(CURSOR, "agent-rule", _MD,
                    (".cursor/rules", ".cursor/rules/**/*", ".cursorrules", ".cursor/commands/**/*.md")),
 
     # --- Windsurf / Devin Desktop / Codeium
     EntrypointSpec(WINDSURF, "mcp-config", parse_mcp_config,
                    (".devin/mcp_config.json", ".devin/mcp_config.local.json", "mcp_config.json")),
-    EntrypointSpec(WINDSURF, "hook-config", parse_hook_settings, (".devin/hooks.v1.json", ".windsurf/hooks.json")),
+    EntrypointSpec(WINDSURF, "hook-config", parse_hook_settings, (".devin/hooks.v1.json", ".windsurf/hooks.json"), bundle=True),
     EntrypointSpec(WINDSURF, "agent-rule", _MD,
                    (".windsurfrules", ".windsurf/rules/**/*.md", ".windsurf/workflows/**/*.md",
                     ".windsurf/global_rules.md", ".devin/rules/**/*.md", ".devin/global_rules.md",
@@ -127,7 +134,7 @@ ENTRYPOINTS: tuple[EntrypointSpec, ...] = (
 
     # --- Kiro / Amazon Q Developer
     EntrypointSpec(KIRO, "mcp-config", parse_mcp_config, (".kiro/settings/mcp.json", ".amazonq/mcp.json")),
-    EntrypointSpec(KIRO, "hook-config", parse_hook_settings, (".kiro/hooks/**/*",)),
+    EntrypointSpec(KIRO, "hook-config", parse_hook_settings, (".kiro/hooks/**/*",), bundle=True),
     EntrypointSpec(KIRO, "agent-rule", _MD, (".kiro/steering/**/*.md", ".amazonq/rules/**/*.md")),
 
     # --- Zed
@@ -139,7 +146,7 @@ ENTRYPOINTS: tuple[EntrypointSpec, ...] = (
 
     # --- generic basenames (after every platform-specific location above)
     # plugin/extension hook files: Claude Code, Codex and Gemini plugins all ship hooks/hooks.json
-    EntrypointSpec(CLAUDE, "hook-config", parse_hook_settings, ("hooks/hooks.json",)),
+    EntrypointSpec(CLAUDE, "hook-config", parse_hook_settings, ("hooks/hooks.json",), bundle=True),
     EntrypointSpec(CLAUDE, "mcp-config", parse_mcp_config,
                    (".mcp.json", "mcp.json", "claude_desktop_config.json", "managed-mcp.json")),
 )

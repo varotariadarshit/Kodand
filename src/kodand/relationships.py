@@ -91,20 +91,51 @@ def find_broken_references(entrypoint_text: str, root_path: Path, supporting_rel
     return sorted(broken)
 
 
-def find_external_references(entrypoint_text: str, entry_dir: Path, repo_root: Path) -> list[str]:
-    """Repo-relative paths of files the entrypoint references that exist inside the
-    repository but OUTSIDE the entrypoint's own folder (`../../scripts/x.sh`, or a
-    repo-root-relative `.ai/skills/other/checklist.md`). They're part of what the
-    agent will read or run, so they must be scanned even though they're not
-    supporting files. Paths escaping the repository are never returned."""
+# What an entrypoint can pull into the scan from elsewhere in the repo. Kodand assesses
+# agent behaviour, not the application's code: a skill that merely mentions `server.ts`
+# or `config/default.yml` ("see how the routes are wired") doesn't make those files agent
+# content, and scanning them is SAST noise. Followed: docs the agent reads as further
+# instructions, shell scripts (which exist to be run), and any file the text tells the
+# agent to execute (`python tools/x.py`, `node scripts/y.js`, `./bin/setup.ts`).
+INSTRUCTION_DOC_SUFFIXES = {".md", ".mdc", ".mdx", ".markdown", ".txt", ".prompt"}
+SCRIPT_SUFFIXES = {".sh", ".bash", ".zsh", ".fish", ".ps1", ".psm1", ".bat", ".cmd"}
+_FOLLOWED_SUFFIXES = INSTRUCTION_DOC_SUFFIXES | SCRIPT_SUFFIXES
+_RUN_TARGET_RE = re.compile(
+    r"(?:^|[\s`'\"(;&|])"
+    r"(?:(?:sudo\s+)?(?:ba|z|fi)?sh|source|python[\d.]*|py|node|deno\s+run|bun(?:\s+run)?|tsx|ts-node|"
+    r"npx\s+(?:-y\s+)?(?:tsx|ts-node)|uv\s+run|poetry\s+run\s+python|ruby|perl|php|"
+    r"(?:powershell(?:\.exe)?|pwsh)(?:\s+\S+){0,4}?\s+-File|pwsh|go\s+run)"
+    r"\s+(?:-\S+\s+){0,3}((?:\.{1,2}/)?[\w.-]+(?:/[\w.-]+){0,12}\.\w{1,5})\b"
+    # bare `./x.ts` is direct execution; `../x.py` alone is only a mention
+    r"|(?:^|[\s`'\"(;&|])(\./[\w.-]+(?:/[\w.-]+){0,12}\.\w{1,5})\b",
+    re.MULTILINE)
+
+
+def extract_run_targets(text: str) -> set[str]:
+    """Paths the text tells the agent to execute: `python tools/x.py`, `bash ./setup.sh`,
+    `node scripts/build.js`, `./bin/run.ts` — inline, in a code block, anywhere."""
+    return {m.group(1) or m.group(2) for m in _RUN_TARGET_RE.finditer(text)}
+
+
+def find_external_references(entrypoint_text: str, entry_dir: Path, repo_root: Path,
+                              bundle: bool = True) -> list[str]:
+    """Repo-relative paths of agent content the entrypoint points at that exist inside
+    the repository but OUTSIDE the entrypoint's own folder: instruction docs it refers
+    the agent to, shell scripts, and files it tells the agent to run (see
+    `_FOLLOWED_SUFFIXES` / `extract_run_targets`). Bare mentions of application source
+    or data files are not followed. Paths escaping the repository are never returned.
+    For a non-bundle entrypoint (an instruction file, whose folder is not scanned) files
+    beside it count too: a root `AGENTS.md` pointing at `scripts/check.sh` is in scope."""
     root = repo_root.resolve()
     entry = entry_dir.resolve()
     # the entry dir, then each ancestor up to the scan root: project-root-relative
-    # references (`server.ts`) still resolve when the project sits under a wrapper
+    # references (`scripts/x.sh`) still resolve when the project sits under a wrapper
     # dir (a folder upload or a GitHub zip's `<repo>-main/`)
     bases = [entry] + [p for p in entry.parents if p.is_relative_to(root)]
+    refs = {r for r in extract_referenced_paths(entrypoint_text) if Path(r).suffix.lower() in _FOLLOWED_SUFFIXES}
+    refs |= extract_run_targets(entrypoint_text)
     out = set()
-    for ref in extract_referenced_paths(entrypoint_text):
+    for ref in refs:
         if _URL_RE.match(ref) or ref.startswith("/"):
             continue
         for base in bases:
@@ -112,7 +143,9 @@ def find_external_references(entrypoint_text: str, entry_dir: Path, repo_root: P
                 target = (base / ref).resolve()
             except (OSError, RuntimeError):
                 continue
-            if not target.is_file() or not target.is_relative_to(root) or target.is_relative_to(entry):
+            if not target.is_file() or not target.is_relative_to(root):
+                continue
+            if bundle and target.is_relative_to(entry):  # already a supporting file
                 continue
             out.add(target.relative_to(root).as_posix())
             break

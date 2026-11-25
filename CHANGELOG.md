@@ -30,6 +30,12 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   0.152.0, pydantic 2.14.1, uvicorn 0.54.0), with no known vulnerabilities (`pip-audit`).
 
 ### Changed
+- Scan scope is agent content only. Instruction/rules/command files and MCP configs
+  no longer pull in their folder as "supporting files" — a repo-root `AGENTS.md` used to
+  turn the whole application into a SAST scan (OWASP Juice Shop: 19 of 21 findings were
+  application code; now 0). Skill folders, hook dirs and plugin manifest dirs are still
+  scanned whole. Outside them, only referenced docs, shell scripts and files the text
+  tells the agent to run are followed, not bare mentions of application source.
 - A scanned repository's `.kodand.yml` is ignored unless explicitly trusted.
 - Suppressions match individual occurrences; `path:` scopes no longer hide a rule's
   evidence in other files, and suppressing one rule no longer hides a rule merged with it.
