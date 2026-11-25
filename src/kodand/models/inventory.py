@@ -11,7 +11,7 @@ class FileArtifact(BaseModel):
 class SkillMetadata(BaseModel):
  name:str|None=None;description:str|None=None;license:str|None=None;compatibility:str|None=None;allowed_tools:list[str]=Field(default_factory=list);additional_fields:dict[str,Any]=Field(default_factory=dict)
 class AgentExtension(BaseModel):
- extension_id:str;platform:str;extension_type:str;root_path:str;entrypoint:str;metadata:SkillMetadata;instruction_line_count:int=0;supporting_files:list[FileArtifact]=Field(default_factory=list);parse_errors:list[str]=Field(default_factory=list);undeclared_supporting_files:list[str]=Field(default_factory=list);broken_references:list[str]=Field(default_factory=list)
+ extension_id:str;platform:str;extension_type:str;root_path:str;entrypoint:str;metadata:SkillMetadata;instruction_line_count:int=0;supporting_files:list[FileArtifact]=Field(default_factory=list);parse_errors:list[str]=Field(default_factory=list);undeclared_supporting_files:list[str]=Field(default_factory=list);broken_references:list[str]=Field(default_factory=list);referenced_files:list[str]=Field(default_factory=list)
 class PlatformDetection(BaseModel):
  platform:str;confidence:Literal["high","medium","low"];evidence:list[str]=Field(default_factory=list)
 class ScanWarning(BaseModel):

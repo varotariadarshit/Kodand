@@ -1,27 +1,23 @@
 import json
 
 from kodand.adapters.common import Parsed
+from kodand.adapters.configs import load_json_tolerant, mcp_servers
 from kodand.models.inventory import SkillMetadata
 
 
 def parse_mcp_config(text):
     """Parser for MCP server config JSON (`.mcp.json`, `mcp.json`,
-    `claude_desktop_config.json`) — an `{"mcpServers": {name: {command, args, env}}}`
-    (or `"servers"`) mapping. The matcher scans the raw text for risky
-    indicators regardless of this parse; `metadata` only feeds inventory/reporting."""
+    `claude_desktop_config.json`, `.vscode/mcp.json`, `opencode.json(c)`, ...) — an
+    `{"mcpServers": {name: {command, args, env}}}` (or `"servers"` / `"mcp"`) mapping,
+    JSONC tolerated. The matcher scans the raw text for risky indicators regardless
+    of this parse; `metadata` only feeds inventory/reporting."""
     o = Parsed(body=text)
     try:
-        data = json.loads(text)
+        data = load_json_tolerant(text)
     except json.JSONDecodeError as e:
         o.errors = [f"Malformed JSON: {e}"]
         return o
-    servers = {}
-    if isinstance(data, dict):
-        for key in ("mcpServers", "servers"):
-            candidate = data.get(key)
-            if isinstance(candidate, dict):
-                servers = candidate
-                break
+    servers = mcp_servers(data)
     o.metadata = SkillMetadata(additional_fields={
         "servers": sorted(servers), "server_count": len(servers),
     })
@@ -29,21 +25,22 @@ def parse_mcp_config(text):
 
 
 def parse_hook_settings(text):
-    """Parser for Claude Code hook settings (`.claude/settings.json`,
-    `.claude/settings.local.json`) — a `{"hooks": {event: [{"hooks": [{command}]}]}}`
-    mapping. The matcher scans the raw text directly; this only feeds metadata."""
+    """Parser for hook settings: Claude Code / Gemini / Codex
+    `{"hooks": {event: [{"matcher", "hooks": [{command}]}]}}` and Cursor / Copilot
+    `{"version": 1, "hooks": {event: [{command} | {bash, powershell}]}}`. The matcher
+    scans the raw text directly; this only feeds metadata."""
     o = Parsed(body=text)
     try:
-        data = json.loads(text)
+        data = load_json_tolerant(text)
     except json.JSONDecodeError as e:
         o.errors = [f"Malformed JSON: {e}"]
         return o
     hooks = data.get("hooks") if isinstance(data, dict) else None
     hooks = hooks if isinstance(hooks, dict) else {}
     command_count = sum(
-        1 for entries in hooks.values() if isinstance(entries, list)
+        len(entry["hooks"]) if isinstance(entry.get("hooks"), list) else 1
+        for entries in hooks.values() if isinstance(entries, list)
         for entry in entries if isinstance(entry, dict)
-        for _ in (entry.get("hooks") or [])
     )
     o.metadata = SkillMetadata(additional_fields={
         "hook_events": sorted(hooks), "hook_command_count": command_count,

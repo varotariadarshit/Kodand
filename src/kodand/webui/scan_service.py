@@ -41,7 +41,39 @@ from kodand.webui import scan_cache
 
 BUILTIN_CATS = set(BUILTIN_NAMES)  # every AST/MCP/HOOK code — see kodand.categories
 MAX_SCAN_FILES = 10000  # hard cutoff once max_scan_files budget is exhausted — see _select_scan_files
-SCANNABLE_EXTENSIONS = {".md", ".txt", ".yaml", ".yml", ".json", ".toml", ".py", ".js", ".ts", ".sh", ".ps1"}
+SCANNABLE_EXTENSIONS = {
+    # docs / instructions
+    ".md", ".mdc", ".mdx", ".txt", ".rst", ".html", ".htm", ".xml",
+    # config
+    ".yaml", ".yml", ".json", ".jsonc", ".json5", ".toml", ".cfg", ".ini", ".conf", ".properties",
+    # scripts a skill can ship or tell the agent to run
+    ".py", ".js", ".mjs", ".cjs", ".jsx", ".ts", ".mts", ".cts", ".tsx",
+    ".sh", ".bash", ".zsh", ".fish", ".ksh", ".ps1", ".psm1", ".psd1", ".bat", ".cmd",
+    ".rb", ".pl", ".php", ".lua", ".go", ".rs", ".java", ".kt", ".swift", ".r", ".applescript", ".scpt", ".vbs",
+}
+# extensionless (or dot-named) files worth scanning by name — agent rule files, env and build files
+SCANNABLE_NAMES = {
+    ".cursorrules", ".windsurfrules", ".clinerules", ".roorules", ".rules", ".roomodes", ".envrc",
+    "dockerfile", "containerfile", "makefile", "justfile", "procfile", "gemfile", "rakefile", "brewfile",
+}
+_SHEBANG_SNIFF_BYTES = 64
+
+
+def is_scannable(path: Path) -> bool:
+    """Text a scan should match: known extensions, known names, `.env*` files and
+    extensionless scripts with a shebang (`scripts/install` with `#!/bin/sh`)."""
+    name = path.name.lower()
+    if path.suffix.lower() in SCANNABLE_EXTENSIONS or name in SCANNABLE_NAMES:
+        return True
+    if name.startswith(".env") or name.startswith(".roorules-"):
+        return True
+    if path.suffix == "" or name.startswith("."):
+        try:
+            with open(path, "rb") as fh:
+                return fh.read(_SHEBANG_SNIFF_BYTES).startswith(b"#!")
+        except OSError:
+            return False
+    return False
 # extensions prioritized ahead of plain docs when a repo exceeds max_scan_files — see _select_scan_files
 _HIGH_PRIORITY_EXTENSIONS = {".py", ".js", ".ts", ".sh", ".ps1", ".json", ".yaml", ".yml"}
 _SEVERITY_RANK = {"critical": 4, "high": 3, "medium": 2, "low": 1, "informational": 0}
@@ -214,8 +246,14 @@ def run_template_scan(repo_path: str, use_custom: bool, custom_dir: Path | None,
         supporting_files = {
             root / sf.relative_path
             for ext in inv.extensions for sf in ext.supporting_files
-            if not sf.is_symlink and Path(sf.relative_path).suffix.lower() in SCANNABLE_EXTENSIONS
+            if not sf.is_symlink and is_scannable(root / sf.relative_path)
         }
+        # files an entrypoint references outside its own folder (resolved inside the repo)
+        supporting_files |= {
+            root / rel for ext in inv.extensions for rel in ext.referenced_files
+            if is_scannable(root / rel)
+        }
+        supporting_files -= entry_files
         total_candidates = len(entry_files) + len(supporting_files)
         scan_files = _select_scan_files(entry_files, supporting_files, max_scan_files)
         if total_candidates > max_scan_files:
@@ -354,6 +392,7 @@ def run_template_scan(repo_path: str, use_custom: bool, custom_dir: Path | None,
             "use_custom": bool(use_custom), "findings": len(findings), "suppressed": suppressed,
             "overall_risk": overall, "severity": sev, "by_category": by,
             "correlated_risks": correlated, "artifacts": artifacts,
+            "warnings": [w.model_dump() for w in inv.warnings],
         }
     finally:
         if extracted_root:

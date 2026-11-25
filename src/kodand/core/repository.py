@@ -10,6 +10,33 @@ from pathlib import Path
 from kodand.exceptions import InvalidRepositoryError
 
 EX={".git",".venv","venv","node_modules","dist","build","__pycache__",".pytest_cache"}
+# build output dirs: skipped as noise, EXCEPT where the name is a skill/command's own
+# name (`.claude/skills/build/SKILL.md`) — never let an exclusion hide an agent artifact
+BUILD_OUTPUT_DIRS={"dist","build"}
+_AGENT_CONTAINERS={"skills","agents","commands","rules","workflows","prompts","steering"}
+def is_excluded_dir(path):
+ """True for a directory the walk (and every supporting-file listing) skips."""
+ path=Path(path);name=path.name
+ if name not in EX:return False
+ if name not in BUILD_OUTPUT_DIRS:return True
+ if path.parent.name.lower() in _AGENT_CONTAINERS:return False
+ from kodand.entrypoints import match_entrypoint  # local: entrypoints imports the adapters, not this module
+ try:
+  return not any(c.is_file() and match_entrypoint(c.name) for c in path.iterdir())
+ except OSError:
+  return True
+def iter_tree(directory):
+ """Every file and symlink under `directory`, pruning excluded dirs exactly as
+ walk_repository does — so an entrypoint at the repo root (AGENTS.md, CLAUDE.md)
+ never drags node_modules/.git/.venv into its supporting files."""
+ for cur,dirs,names in os.walk(directory,topdown=True,followlinks=False):
+  cp=Path(cur);keep=[]
+  for d in sorted(dirs):
+   child=cp/d
+   if child.is_symlink():yield child
+   elif not is_excluded_dir(child):keep.append(d)
+  dirs[:]=keep
+  for n in sorted(names):yield cp/n
 ARCHIVE_SUFFIXES=(".zip",".tar.gz",".tgz")
 # scanned archives are untrusted: bound what one can unpack to, so a small "zip bomb" can't fill the disk
 MAX_EXTRACT_BYTES=1024*1024*1024
@@ -50,7 +77,7 @@ def copy_snapshot(src,dest):
  symlink. Following a symlink here would copy whatever it points at (e.g. a planted
  link to ~/.ssh/id_rsa) into the scan, where the Files viewer and MCP clients read it."""
  def ignore(dirpath,names):
-  return {n for n in names if n in EX or os.path.islink(os.path.join(dirpath,n))}
+  return {n for n in names if os.path.islink(os.path.join(dirpath,n)) or (os.path.isdir(os.path.join(dirpath,n)) and is_excluded_dir(os.path.join(dirpath,n)))}
  shutil.copytree(src,dest,dirs_exist_ok=True,ignore=ignore)
 def _extract_archive(p):
  dest=Path(tempfile.mkdtemp(prefix="kodand-archive-")).resolve()
@@ -72,8 +99,8 @@ def walk_repository(p):
   o.directories_examined+=1;cp=Path(cur);keep=[]
   for d in sorted(dirs):
    child=cp/d
-   if d in EX:o.excluded_paths.append(child.relative_to(root).as_posix())
-   elif child.is_symlink():o.files.append(child)
+   if child.is_symlink():o.files.append(child)
+   elif is_excluded_dir(child):o.excluded_paths.append(child.relative_to(root).as_posix())
    else:keep.append(d)
   dirs[:]=keep;o.files += [cp/n for n in sorted(names)]
  return o

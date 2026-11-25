@@ -91,6 +91,34 @@ def find_broken_references(entrypoint_text: str, root_path: Path, supporting_rel
     return sorted(broken)
 
 
+def find_external_references(entrypoint_text: str, entry_dir: Path, repo_root: Path) -> list[str]:
+    """Repo-relative paths of files the entrypoint references that exist inside the
+    repository but OUTSIDE the entrypoint's own folder (`../../scripts/x.sh`, or a
+    repo-root-relative `.ai/skills/other/checklist.md`). They're part of what the
+    agent will read or run, so they must be scanned even though they're not
+    supporting files. Paths escaping the repository are never returned."""
+    root = repo_root.resolve()
+    entry = entry_dir.resolve()
+    # the entry dir, then each ancestor up to the scan root: project-root-relative
+    # references (`server.ts`) still resolve when the project sits under a wrapper
+    # dir (a folder upload or a GitHub zip's `<repo>-main/`)
+    bases = [entry] + [p for p in entry.parents if p.is_relative_to(root)]
+    out = set()
+    for ref in extract_referenced_paths(entrypoint_text):
+        if _URL_RE.match(ref) or ref.startswith("/"):
+            continue
+        for base in bases:
+            try:
+                target = (base / ref).resolve()
+            except (OSError, RuntimeError):
+                continue
+            if not target.is_file() or not target.is_relative_to(root) or target.is_relative_to(entry):
+                continue
+            out.add(target.relative_to(root).as_posix())
+            break
+    return sorted(out)
+
+
 if __name__ == "__main__":
     import tempfile
 

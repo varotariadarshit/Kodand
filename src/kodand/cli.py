@@ -5,6 +5,7 @@ from pathlib import Path
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 from rich.table import Table
 
 from kodand import __version__
@@ -86,6 +87,8 @@ def analyze(repository: Path, output: Path = typer.Option(Path('analysis.json'),
     t.add_row('Repository', res['repository']); t.add_row('Skills', str(res['skills']))
     t.add_row('Findings', str(res['findings'])); t.add_row('Suppressed', str(res['suppressed']))
     t.add_row('Overall Risk', res['overall_risk']); c.print(t)
+    for w in res.get('warnings', []):
+        c.print(f"[yellow]Warning ({w['code']}):[/yellow] " + escape(w['message']), highlight=False)
     c.print('[yellow]Candidate findings require human validation.[/yellow]')
 
 

@@ -46,6 +46,23 @@ def _compiled_regex(template: KodandTemplate):
     return out
 
 
+_BINARY_SNIFF_BYTES = 8192
+
+
+def decode_text(data: bytes) -> str | None:
+    """Bytes -> text for matching. UTF-16/32 by BOM (PowerShell commonly saves as
+    UTF-16LE, which a plain UTF-8 decode turns into unmatchable NUL-interleaved
+    noise), else UTF-8 with replacement. Returns None for binary content (a NUL
+    byte in the first 8 KB of a non-UTF-16/32 file)."""
+    if data.startswith((b"\xff\xfe\x00\x00", b"\x00\x00\xfe\xff")):
+        return data.decode("utf-32", errors="replace")
+    if data.startswith((b"\xff\xfe", b"\xfe\xff")):
+        return data.decode("utf-16", errors="replace")
+    if b"\x00" in data[:_BINARY_SNIFF_BYTES]:
+        return None
+    return data.decode("utf-8-sig", errors="replace")
+
+
 def read_file(file_path: Path, repository_root: Path):
     """Cheap phase of `precompute_file_views`: read the file and resolve its
     relative path. Split out so a parallel-scan worker can hash/dispatch on
@@ -57,8 +74,10 @@ def read_file(file_path: Path, repository_root: Path):
     try:
         if file_path.stat().st_size > MAX_FILE_BYTES:
             return None
-        text = file_path.read_text(encoding="utf-8", errors="replace")
+        text = decode_text(file_path.read_bytes())
     except OSError:
+        return None
+    if text is None:
         return None
     try:
         relative_path = file_path.relative_to(repository_root).as_posix()

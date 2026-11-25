@@ -613,6 +613,17 @@ def write_html(a, p):
     ast_bar_rows, ast_coverage_rows = _taxonomy_tables("AST")
     mcp_bar_rows, mcp_coverage_rows = _taxonomy_tables("MCP")
     hook_bar_rows, hook_coverage_rows = _taxonomy_tables("HOOK")
+    warning_block = ""
+    if a.inventory.warnings:
+        wrows = "".join(
+            f"<tr><td><code>{html.escape(w.code)}</code></td><td>{html.escape(w.message)}</td></tr>"
+            for w in a.inventory.warnings)
+        warning_block = (
+            '  <div class="section-title">Scan Coverage Warnings</div>\n'
+            '  <div class="glass"><table><thead><tr><th>Code</th><th>Detail</th></tr></thead>'
+            f'<tbody>{wrows}</tbody></table>\n'
+            '    <p class="tagline" style="margin-top:12px">Parts of the repository that were not, or not fully, '
+            'scanned. Review these before treating the absence of findings as a clean result.</p></div>')
     plats = {x.platform: x for x in a.inventory.platforms}
     platform_rows = ""
     for k, v in plats.items():
@@ -770,6 +781,7 @@ def write_html(a, p):
       <div class="bars"><div class="section-title" style="margin:0 0 4px">Hooks Top 10</div>{hook_bar_rows}</div>
     </div>
   </div></div>
+{warning_block}
   <div class="section-title">Detected AI Platforms</div>
   <div class="glass"><table><thead><tr><th>Platform</th><th>Status</th><th>Confidence</th><th>Detection Evidence</th></tr></thead><tbody>{platform_rows}</tbody></table>
     <p class="tagline" style="margin-top:12px">Fingerprinting indicates matching repository artifacts and does not independently confirm active deployment.</p></div>
