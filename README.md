@@ -136,7 +136,7 @@ patterns, it doesn't prove exploitability.
   category against a labeled corpus, plus a hand-reviewed real-world scan —
   see [Accuracy](#accuracy).
 
-Version **2.0.0**, rule pack `KODAND-2.0`.
+Version **2.0.1**, rule pack `KODAND-2.0`.
 
 ## Detection coverage
 
