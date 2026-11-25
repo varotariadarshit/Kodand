@@ -15,6 +15,7 @@ _BASE = {"high": 80, "medium": 55, "low": 32}
 _CONTEXT_WEIGHT = {
     "instruction": 1.0,
     "code": 1.05,          # payload inside a code fence is slightly stronger
+    "hidden": 1.1,         # inside an HTML comment: invisible to a human reviewer, read by the agent
     "frontmatter": 1.0,
     "warning": 0.35,
     "example": 0.35,

@@ -11,7 +11,7 @@ from pathlib import Path
 
 from kodand.redaction import redact
 from kodand.templates.confidence import calculate_confidence
-from kodand.templates.context import classify_document
+from kodand.templates.context import classify_document, match_context
 from kodand.templates.models import KodandTemplate
 from kodand.templates.normalize import normalized_views
 from kodand.templates.regexguard import MAX_REGEX_LINE, safe_finditer_all
@@ -147,14 +147,15 @@ def match_template_views(template: KodandTemplate, relative_path: str, views: li
                 col_start = match_index + 1
                 col_end = match_index + len(indicator) + 1
                 matched_value = view_text[match_index:match_index + len(indicator)]
+                mctx = match_context(ctx, view_text, match_index, match_index + len(indicator))
                 matches.append(TemplateMatch(
                     template_id=template.id, category=template.info.category,
                     severity=template.info.severity,
-                    confidence=calculate_confidence(template.info.confidence, ctx),
+                    confidence=calculate_confidence(template.info.confidence, mctx),
                     file=relative_path, line=line_number,
                     column_start=col_start, column_end=col_end,
                     matched_value=redact(matched_value), excerpt=redact(line.strip()[:700]),
-                    context=ctx, match_kind=kind, decoded_from=decoded_from))
+                    context=mctx, match_kind=kind, decoded_from=decoded_from))
                 search_start = match_index + len(indicator)
 
     # --- opt-in regex matching (v3), ReDoS-guarded per (file, pattern) ---
@@ -163,14 +164,15 @@ def match_template_views(template: KodandTemplate, relative_path: str, views: li
             raw = m.group(0)
             if not raw:
                 continue
+            mctx = match_context(ctx, view_text, m.start(), m.end())
             matches.append(TemplateMatch(
                 template_id=template.id, category=template.info.category,
                 severity=template.info.severity,
-                confidence=calculate_confidence(template.info.confidence, ctx),
+                confidence=calculate_confidence(template.info.confidence, mctx),
                 file=relative_path, line=line_number,
                 column_start=m.start() + 1, column_end=m.end() + 1,
                 matched_value=redact(raw[:200]), excerpt=redact(line.strip()[:700]),
-                context=ctx, match_kind="regex" if not decoded_from else "decoded",
+                context=mctx, match_kind="regex" if not decoded_from else "decoded",
                 decoded_from=decoded_from))
     return matches
 
