@@ -29,8 +29,9 @@ kodand ui                                      # or review findings in the web c
 
 **Accuracy:** on OpenA2A's deliberately vulnerable
 [damn-vulnerable-ai-agent](https://github.com/opena2a-org/damn-vulnerable-ai-agent),
-Kodand reports 11 findings, and a hand review of each one found 11 true positives and
-0 false positives. Its labelled benchmark scores 1.00 precision and recall
+Kodand reports 12 findings, and a hand review of each one found 11 true positives, 1
+accurate low-severity hygiene finding and 0 false positives. Its labelled benchmark
+scores 1.00 precision and recall
 ([method and details](https://github.com/varotariadarshit/Kodand/blob/master/docs/BENCHMARK.md)).
 
 It reads Claude's `SKILL.md`, Gemini CLI's `GEMINI.md`, Copilot instructions,
@@ -393,8 +394,8 @@ kodand bench /path/to/corpus           # or your own labeled corpus
 
 | Benchmark | Result |
 | --- | --- |
-| Built-in labelled corpus (`kodand bench`): 64 samples, 63 labelled detections | Precision 1.00 · Recall 1.00 |
-| [damn-vulnerable-ai-agent](https://github.com/opena2a-org/damn-vulnerable-ai-agent) 0.9.3, every finding reviewed by hand | 11 findings, 11 true positives, 0 false positives |
+| Built-in labelled corpus (`kodand bench`): 66 samples, 63 labelled detections | Precision 1.00 · Recall 1.00 |
+| [damn-vulnerable-ai-agent](https://github.com/opena2a-org/damn-vulnerable-ai-agent) 0.9.3 (`30011c1`), every finding reviewed by hand | 12 findings: 11 true positives, 1 low-severity hygiene finding, 0 false positives; 1 known miss |
 
 The built-in corpus is Kodand's own, so the real-world scan is the check that
 matters. Method, the full before/after comparison and how to reproduce both

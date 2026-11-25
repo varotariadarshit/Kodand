@@ -1,4 +1,5 @@
 import hashlib
+import re
 from collections import Counter
 from pathlib import Path
 
@@ -26,12 +27,45 @@ def _match_entrypoint(path, root, extra=()):
     return (spec, rel) if spec else None
 
 
+# MCP protocol markers in server code: the SDKs, and the JSON-RPC methods / tool schema key a
+# hand-rolled server implements. Their tool descriptions are what the agent reads.
+_MCP_SERVER_MARKERS = re.compile(
+    rb"@modelcontextprotocol/sdk|\bMcpServer\b|\bFastMCP\b|from mcp\.server|import mcp\.server|"
+    rb"[\"']tools/(?:list|call)[\"']|\binputSchema\b")
+_SERVER_CODE_SUFFIXES = {".js", ".mjs", ".cjs", ".ts", ".mts", ".cts", ".py", ".go", ".rs", ".java", ".kt", ".rb"}
+
+
+def is_mcp_server_package(directory: Path) -> bool:
+    """`directory` (or its `src/`) holds MCP server code. Only direct children are checked, so a
+    repo-root `.mcp.json` doesn't turn an application with an MCP server somewhere deep inside it
+    into a whole-repo scan."""
+    for d in (directory, directory / "src"):
+        try:
+            children = list(d.iterdir()) if d.is_dir() else []
+        except OSError:
+            continue
+        for p in children:
+            if p.suffix.lower() not in _SERVER_CODE_SUFFIXES or p.is_symlink() or not p.is_file():
+                continue
+            try:
+                with open(p, "rb") as fh:
+                    if _MCP_SERVER_MARKERS.search(fh.read(256_000)):
+                        return True
+            except OSError:
+                continue
+    return False
+
+
 def _owns_folder(entry: Path, spec, root: Path) -> bool:
     """Whether `entry`'s whole folder is the artifact (and so gets scanned): true for a
     bundle (a skill dir, a hooks dir, a plugin manifest dir), false for instruction /
     rules / command files and MCP configs. A repo-root `AGENTS.md` must not turn the
     application's source tree into "supporting files" — that's a SAST scan, not an
-    agent assessment. Only a skill may claim the repo root (a repo that IS one skill)."""
+    agent assessment. Only a skill may claim the repo root (a repo that IS one skill).
+    An MCP config next to the MCP server it configures (an MCP server package) owns that folder:
+    the server's tool descriptions and stored data are what the agent reads."""
+    if spec.extension_type == "mcp-config" and is_mcp_server_package(entry.parent):
+        return True
     return spec.bundle and (entry.parent != root or spec.extension_type == "agent-skill")
 
 

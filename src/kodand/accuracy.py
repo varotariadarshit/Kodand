@@ -23,6 +23,9 @@ PROXIMITY_PAIRS = {
     frozenset({"scanner-evasion", "code-execution"}): "stealth-payload",
 }
 PROXIMITY_WINDOW = 12
+# a generic rule whose evidence a more specific rule in another category already covers, line for
+# line, is folded into that finding (recorded in merged_rule_ids) instead of reported twice
+SUBSUMED_BY = {"AST03-INLINE-SECRET": ("MCP01",)}
 
 
 def dedup_findings(findings: list[CorrelatedFinding]) -> list[CorrelatedFinding]:
@@ -76,7 +79,23 @@ def dedup_findings(findings: list[CorrelatedFinding]) -> list[CorrelatedFinding]
         target.capabilities = sorted(set(target.capabilities) | set(f.capabilities))
         if f.rule_id not in target.merged_rule_ids and f.rule_id != target.rule_id:
             target.merged_rule_ids.append(f.rule_id)
-    return merged
+    return _fold_subsumed(merged)
+
+
+def _fold_subsumed(findings: list[CorrelatedFinding]) -> list[CorrelatedFinding]:
+    """Level 3: drop a generic finding (SUBSUMED_BY) when a more specific finding in another
+    category reports every one of its lines — e.g. an inline secret in an MCP config is MCP01."""
+    def lines(f):
+        return {(o.file, o.line) for o in f.occurrences}
+    out = []
+    for f in findings:
+        cats = SUBSUMED_BY.get(f.rule_id, ())
+        target = next((m for m in findings if m is not f and m.category in cats and lines(f) <= lines(m)), None)
+        if target is None:
+            out.append(f)
+        elif f.rule_id not in target.merged_rule_ids:
+            target.merged_rule_ids.append(f.rule_id)
+    return out
 
 
 def apply_proximity(findings: list[CorrelatedFinding]) -> None:

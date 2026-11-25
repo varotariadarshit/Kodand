@@ -3,6 +3,24 @@
 All notable changes to this project are documented in this file.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Fixed
+- **MCP server code is scanned again.** 2.0.0 stopped scanning an MCP server's own
+  code when it sits next to the `mcp.json` that configures it, which hid
+  tool-description prompt injection and exfiltration code. An MCP config now owns its
+  folder when that folder holds MCP server code (MCP SDKs, `tools/list`, `tools/call`,
+  `inputSchema`). An application's root `.mcp.json` still scans only itself.
+- **Instruction override:** now also catches skills that declare safety rules
+  "suspended", "ignore ethical/security/content guidelines", "IMPORTANT/ADMIN
+  OVERRIDE:" and "reveal your system prompt". Found missed on damn-vulnerable-ai-agent.
+- A code comment like "silently captures exfiltrated data" is no longer reported as
+  a concealed instruction. The rule now needs an instruction ("silently upload …").
+- An inline secret in an MCP config is reported once, as `MCP01`, instead of also as
+  `AST03-INLINE-SECRET`.
+- `docs/BENCHMARK.md` re-measured: on DVAA commit `30011c1`, Kodand 1.0.0 reports 10
+  true positives with 2 misses, and 2.0 reports 11 true positives with 1 known miss.
+
 ## [2.0.0] - 2026-11-25
 
 ### Added
