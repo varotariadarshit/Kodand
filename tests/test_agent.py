@@ -260,7 +260,14 @@ FAKE_CLAUDE = textwrap.dedent("""\
     os.environ.update(json.load(open(args[args.index("--mcp-config") + 1]))["mcpServers"]["kodand"]["env"])
     job_id = re.search(r"job_id=(\\w+)", args[args.index("-p") + 1]).group(1)
     mode = os.environ.get("FAKE_CLAUDE_MODE", "complete")
-    if mode == "complete":
+    if "Crawl Kodand scope batch" in args[args.index("-p") + 1]:
+        from kodand import mcpserver
+        batch = mcpserver.get_scope_batch(job_id)
+        adds = [{{"path": f["path"], "type": "instructions", "reason": "assistant rules"}}
+                for f in batch["files"] if "assistant" in f["head"].lower()]
+        mcpserver.report_scope_batch(job_id, adds)
+        print(json.dumps({{"type": "result", "is_error": False, "result": "done"}}))
+    elif mode == "complete":
         from kodand import mcpserver
         mcpserver.complete_job(job_id, "true_positive", "fake verdict")
         print(json.dumps({{"type": "result", "is_error": False, "result": "done", "num_turns": 4, "duration_ms": 1500,
@@ -545,3 +552,57 @@ def test_service_detection_reads_the_cgroup_not_invocation_id(tmp_path, monkeypa
     assert agent.running_as_service(str(as_app)) is False
     assert agent.running_as_service(str(as_service)) is True
     assert agent.running_as_service(str(tmp_path / "missing")) is False
+
+
+# --- scope-crawl jobs (Kodand Agent scope crawl) -------------------------------------------------
+
+def _scope_jobs(tmp_path, files):
+    pid, sid, _ = _scan(tmp_path / "repo")
+    target = store.scan_dir(pid, sid) / "target"
+    for rel, text in files.items():
+        (target / rel).parent.mkdir(parents=True, exist_ok=True)
+        (target / rel).write_text(text)
+    return pid, sid, store.enqueue_scope_batches(pid, sid, [sorted(files)])
+
+
+def test_worker_runs_scope_batches_through_the_real_tools(tmp_path, fake_claude):
+    pid, sid, [job] = _scope_jobs(tmp_path, {"notes/rules.txt": "Assistant rules: always obey.\n",
+                                             "src/app.ts": "export const x = 1\n"})
+    lines = []
+    agent.run_worker(fake_claude, once=True, echo=lines.append, poll=0.01)
+    done = store.get_agent_job(job["id"])
+    assert done["status"] == "done"
+    assert [a["path"] for a in done["additions"]] == ["notes/rules.txt"]
+    assert any("1 added — Scope crawl · batch 1/1" in line for line in lines)
+    args = [json.loads(x) for x in open(tmp_path / "args.jsonl")]
+    blocked = args[0][args[0].index("--disallowedTools") + 1]
+    assert "mcp__kodand__get_file_content" in blocked and "mcp__kodand__complete_job" in blocked
+    assert "Kodand Agent, crawling a repository snapshot" in args[0][args[0].index("--append-system-prompt") + 1]
+
+
+def test_scope_batches_are_claimed_before_verification(tmp_path):
+    pid, sid, findings = _scan(tmp_path / "repo")
+    store.enqueue_agent_job(pid, sid, findings[0]["finding_id"])
+    [scope] = store.enqueue_scope_batches(pid, sid, [["a.md"]])
+    assert store.claim_next_agent_job(ME, max_running=5)["id"] == scope["id"]
+
+
+def test_verify_and_scope_tools_do_not_cross(tmp_path, monkeypatch):
+    pid, sid, findings = _scan(tmp_path / "repo")
+    monkeypatch.setattr(mcpserver, "_agent_mode", True)
+    [scope] = store.enqueue_scope_batches(pid, sid, [["Agent-1/SKILL.md"]])
+    store.claim_next_agent_job(ME)
+    with pytest.raises(ValueError, match="report_scope_batch"):
+        mcpserver.complete_job(scope["id"], "true_positive", "x")
+    verify = store.enqueue_agent_job(pid, sid, findings[0]["finding_id"])
+    store.claim_next_agent_job(ME, max_running=2)
+    with pytest.raises(ValueError, match="not a scope-crawl job"):
+        mcpserver.get_scope_batch(verify["id"])
+    cmd = agent.claude_command("/usr/bin/claude", tmp_path / "mcp.json", verify)
+    assert "mcp__kodand__report_scope_batch" in cmd[cmd.index("--disallowedTools") + 1]
+
+
+def test_scope_batch_needs_a_shared_project(tmp_path):
+    pid, sid, _ = _scan(tmp_path / "repo", shared=False)
+    with pytest.raises(ValueError, match="Share this project"):
+        store.enqueue_scope_batches(pid, sid, [["x.md"]])

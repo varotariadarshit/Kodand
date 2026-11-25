@@ -107,14 +107,16 @@ _RUN_TARGET_RE = re.compile(
     r"(?:powershell(?:\.exe)?|pwsh)(?:\s+\S+){0,4}?\s+-File|pwsh|go\s+run)"
     r"\s+(?:-\S+\s+){0,3}((?:\.{1,2}/)?[\w.-]+(?:/[\w.-]+){0,12}\.\w{1,5})\b"
     # bare `./x.ts` is direct execution; `../x.py` alone is only a mention
-    r"|(?:^|[\s`'\"(;&|])(\./[\w.-]+(?:/[\w.-]+){0,12}\.\w{1,5})\b",
+    r"|(?:^|[\s`'\"(;&|])(\./[\w.-]+(?:/[\w.-]+){0,12}\.\w{1,5})\b"
+    # "Run `tools/sync.xsh`": an execute verb right before a backticked path
+    r"|\b(?:[Rr]un|[Ee]xecute|[Ii]nvoke|[Ll]aunch)\s+`((?:\.{1,2}/)?[\w.-]+(?:/[\w.-]+){0,12}\.\w{1,5})`",
     re.MULTILINE)
 
 
 def extract_run_targets(text: str) -> set[str]:
     """Paths the text tells the agent to execute: `python tools/x.py`, `bash ./setup.sh`,
-    `node scripts/build.js`, `./bin/run.ts` — inline, in a code block, anywhere."""
-    return {m.group(1) or m.group(2) for m in _RUN_TARGET_RE.finditer(text)}
+    `node scripts/build.js`, `./bin/run.ts`, "run `tools/sync.xsh`" — inline, in a code block, anywhere."""
+    return {m.group(1) or m.group(2) or m.group(3) for m in _RUN_TARGET_RE.finditer(text)}
 
 
 def find_external_references(entrypoint_text: str, entry_dir: Path, repo_root: Path,

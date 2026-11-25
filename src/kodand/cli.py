@@ -63,10 +63,12 @@ def analyze(repository: Path, output: Path = typer.Option(Path('analysis.json'),
             no_cache: bool = typer.Option(False, '--no-cache', help='Skip the content-hash scan cache: neither read nor update it, for a guaranteed-fresh scan.'),
             max_files: int = typer.Option(None, '--max-files', help='Cap on how many files a single scan matches (default: 10000). Entrypoints are always kept; code/config files are prioritized over docs when over budget.'),
             trust_repo_suppressions: bool = typer.Option(False, '--trust-repo-suppressions', help="Apply the scanned repository's own .kodand.yml suppressions. Off by default so a repo can't hide its own findings; use it only for a repository you control."),
+            no_learned_scope: bool = typer.Option(False, '--no-learned-scope', help='Ignore the agent-file locations and extensions you approved from Kodand Agent suggestions (Settings -> Learned scope); scan with the built-in registry only.'),
             no_banner: bool = typer.Option(False, '--no-banner')):
     """Scan a directory for security risks and write JSON, plus optional HTML, SARIF, DOCX or PDF reports."""
     if not no_banner:
         show_banner(c, 'ANALYZING')
+    from kodand.learned_scope import EMPTY, load_learned_scope
     from kodand.webui.scan_service import run_template_scan
     out_dir = output.parent if output.parent.as_posix() != '' else Path('.')
     formats = ['json']
@@ -76,7 +78,8 @@ def analyze(repository: Path, output: Path = typer.Option(Path('analysis.json'),
     if pdf: formats.append('pdf')
     res = run(run_template_scan, str(repository), False, None, out_dir, tuple(formats),
               workers=workers, use_cache=not no_cache, max_scan_files=max_files,
-              trust_repo_suppressions=trust_repo_suppressions)
+              trust_repo_suppressions=trust_repo_suppressions,
+              learned_scope=EMPTY if no_learned_scope else load_learned_scope())
     # move default json to requested output name
     default_json = out_dir / 'analysis.json'
     if default_json.exists() and default_json != output:

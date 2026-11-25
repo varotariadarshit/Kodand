@@ -24,6 +24,8 @@ from kodand.codeanalysis.hidden_text import find_hidden_text
 from kodand.codeanalysis.json_rules import JSON_RULES_LIST
 from kodand.codeanalysis.markdown_rules import analyze_markdown_source, is_markdown_like
 from kodand.codeanalysis.rules import CODE_RULES, CODE_RULES_LIST
+from kodand.learned_scope import EMPTY as NO_LEARNED_SCOPE
+from kodand.learned_scope import LearnedScope
 from kodand.models.analysis import (
     CorrelatedFinding,
     CoverageItem,
@@ -31,9 +33,10 @@ from kodand.models.analysis import (
     RepositoryAnalysis,
     Summary,
 )
-from kodand.models.inventory import ScanWarning
+from kodand.models.inventory import AgentScopeInfo, ScanWarning
 from kodand.reporting import write_docx, write_html, write_pdf, write_sarif
-from kodand.scanner import inventory_repository
+from kodand.scanner import build_extension, inventory_repository
+from kodand.scope_agent import spec_for
 from kodand.suppress import apply_suppressions, repo_suppression_file
 from kodand.templates import matcher, regexguard
 from kodand.templates.correlation import correlate_capabilities
@@ -61,11 +64,15 @@ SCANNABLE_NAMES = {
 _SHEBANG_SNIFF_BYTES = 64
 
 
-def is_scannable(path: Path) -> bool:
+def is_scannable(path: Path, learned: LearnedScope = NO_LEARNED_SCOPE) -> bool:
     """Text a scan should match: known extensions, known names, `.env*` files and
-    extensionless scripts with a shebang (`scripts/install` with `#!/bin/sh`)."""
+    extensionless scripts with a shebang (`scripts/install` with `#!/bin/sh`), plus any
+    extensions/names the user approved from Kodand Agent suggestions (`learned`)."""
     name = path.name.lower()
-    if path.suffix.lower() in SCANNABLE_EXTENSIONS or name in SCANNABLE_NAMES:
+    suffix = path.suffix.lower()
+    if suffix in SCANNABLE_EXTENSIONS or name in SCANNABLE_NAMES:
+        return True
+    if suffix in learned.extensions or name in learned.names:
         return True
     if name.startswith(".env") or name.startswith(".roorules-"):
         return True
@@ -268,11 +275,52 @@ def _select_scan_files(entry_files: set[Path], supporting_files: set[Path], max_
     return sorted(entries + (high + low)[:budget])
 
 
+def static_scope(inv) -> set[str]:
+    """Repo-relative paths the static pass already scans: entrypoints, bundle files, references."""
+    out = {e.entrypoint for e in inv.extensions}
+    out |= {sf.relative_path for e in inv.extensions for sf in e.supporting_files}
+    out |= {r for e in inv.extensions for r in e.referenced_files}
+    return out
+
+
+_SCOPE_WARNINGS = {
+    "partial": "AGENT_SCOPE_PARTIAL",
+    "skipped": "AGENT_SCOPE_PARTIAL",
+    "offline": "AGENT_SCOPE_UNAVAILABLE",
+    "not_shared": "AGENT_SCOPE_UNAVAILABLE",
+    "error": "AGENT_SCOPE_UNAVAILABLE",
+}
+
+
+def _apply_agent_scope(inv, root: Path, provider, progress) -> None:
+    """Run the Kodand Agent scope crawl and add what it found as agent-discovered entrypoints.
+    Any failure leaves the static scope exactly as it was (plus a warning)."""
+    try:
+        info = provider(root, inv, static_scope(inv), progress)
+    except Exception as exc:  # the crawl is best-effort; the scan must still complete
+        info = AgentScopeInfo(status="error", detail=f"Kodand Agent scope crawl failed: {exc}"[:500])
+    known = {e.entrypoint for e in inv.extensions}
+    for add in info.added:
+        rel = add["path"]
+        target = root / rel
+        if rel in known or target.is_symlink() or not target.is_file():
+            continue
+        inv.extensions.append(build_extension(target, root, spec_for(add["type"]), rel,
+                                              discovered_by="kodand-agent", reason=add.get("reason")))
+        known.add(rel)
+    inv.agent_scope = info
+    code = _SCOPE_WARNINGS.get(info.status)
+    if code and info.detail:
+        inv.warnings.append(ScanWarning(code=code, message=info.detail))
+
+
 def run_template_scan(repo_path: str, use_custom: bool, custom_dir: Path | None,
                       out_dir: Path, formats=("html", "json", "sarif"), on_progress=None,
                       *, workers: int = 1, use_cache: bool = True, max_scan_files: int | None = None,
                       extra_suppressions: list[dict] | None = None,
-                      trust_repo_suppressions: bool = False) -> dict:
+                      trust_repo_suppressions: bool = False,
+                      learned_scope: LearnedScope = NO_LEARNED_SCOPE,
+                      scope_provider=None) -> dict:
     """`on_progress(stage: str, detail: dict)`, called at each pipeline stage transition and once per
     file during template matching (stage="matching", detail has current_file/scanned/total) — feeds the
     web console's live scan-progress dashboard. Optional; scanning behaves identically without it.
@@ -285,7 +333,12 @@ def run_template_scan(repo_path: str, use_custom: bool, custom_dir: Path | None,
     `use_cache=True` (default) consults/updates the workspace-global content-hash cache
     (`scan_cache.py`) so an unchanged file isn't re-matched on a later scan; pass `False` for
     a guaranteed-fresh scan that neither reads nor writes the cache. `max_scan_files` bounds
-    how many files a single scan matches (see `_select_scan_files`)."""
+    how many files a single scan matches (see `_select_scan_files`).
+
+    `learned_scope`: user-approved locations/extensions (kodand.learned_scope) the static scope
+    also uses. `scope_provider(root, inventory, static_scope, progress) -> AgentScopeInfo`: the
+    Kodand Agent scope crawl (console only). It runs after the static inventory and can only ADD
+    entrypoints — its `added` files join the scan as agent-discovered entrypoints."""
     def _progress(stage, **detail):
         if on_progress:
             on_progress(stage, detail)
@@ -322,13 +375,15 @@ def run_template_scan(repo_path: str, use_custom: bool, custom_dir: Path | None,
     cache = scan_cache.load_cache(cache_hash) if use_cache else {}
 
     _progress("inventory")
-    inv = inventory_repository(repo_path)
+    inv = inventory_repository(repo_path, extra_entrypoints=learned_scope.entrypoint_specs())
     root = Path(inv.repository_root)
     # a repo_path pointing at an archive gets extracted to a temp dir by
     # validate_repository; clean it up once this scan is done with it (matters
     # most here since the web UI process outlives any single scan)
     extracted_root = Path(repo_path).expanduser().resolve() != root
     try:
+        if scope_provider is not None:
+            _apply_agent_scope(inv, root, scope_provider, _progress)
         # entrypoints come from inventory_repository's platform registry (scanner.ENTRYPOINTS) —
         # covers every supported platform's skill/instruction file, not just Claude's SKILL.md
         entry_files = {root / e.entrypoint for e in inv.extensions}
@@ -336,12 +391,12 @@ def run_template_scan(repo_path: str, use_custom: bool, custom_dir: Path | None,
         supporting_files = {
             root / sf.relative_path
             for ext in inv.extensions for sf in ext.supporting_files
-            if not sf.is_symlink and is_scannable(root / sf.relative_path)
+            if not sf.is_symlink and is_scannable(root / sf.relative_path, learned_scope)
         }
         # files an entrypoint references outside its own folder (resolved inside the repo)
         supporting_files |= {
             root / rel for ext in inv.extensions for rel in ext.referenced_files
-            if is_scannable(root / rel)
+            if is_scannable(root / rel, learned_scope)
         }
         supporting_files -= entry_files
         total_candidates = len(entry_files) + len(supporting_files)

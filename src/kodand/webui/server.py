@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import asyncio
+import functools
+import logging
 import os
 import shutil
 import threading
@@ -20,10 +22,12 @@ from kodand.codeanalysis.json_rules import JSON_RULES_LIST
 from kodand.codeanalysis.rules import CODE_RULES_LIST
 from kodand.core.repository import copy_snapshot, extract_archive_into, is_archive_file
 from kodand.exceptions import InvalidRepositoryError
+from kodand.learned_scope import load_learned_scope
 from kodand.models.analysis import RepositoryAnalysis
 from kodand.reporting import write_html
 from kodand.webui import ai_review, cli_ai, store
 from kodand.webui.scan_service import MAX_SCAN_FILES, load_builtin_templates, run_template_scan
+from kodand.webui.scope_crawl import make_scope_provider, skip_scope_crawl
 
 STATIC_DIR = Path(__file__).parent / "static"
 app = FastAPI(title="Kodand UI", version=__version__)
@@ -388,6 +392,8 @@ async def api_create_scan(pid: str, request: Request):
     except (TypeError, ValueError):
         workers = 1
     agent_verify = str(form.get("agent_verify", "")).lower() == "true"
+    agent_scope = str(form.get("agent_scope", "")).lower() == "true"
+    agent_min_severity = agent_max = None
     if agent_verify:
         # refuse up front, not after a long scan the user then has to re-run
         _require_local_agent_request(request)
@@ -442,34 +448,109 @@ async def api_create_scan(pid: str, request: Request):
     else:
         store.delete_scan(pid, sid); raise HTTPException(400, "Provide an existing repo_path or upload files containing SKILL.md")
     store.start_scan_progress(pid, sid, label or Path(scan_root).name, source)
+    learned = load_learned_scope()
+    run = functools.partial(
+        _execute_scan, pid, sid, scan_root, label=label, source=source, use_custom=bool(use_custom),
+        workers=workers, learned=learned,
+        scope_provider=make_scope_provider(pid, sid, learned) if agent_scope else None,
+        agent_verify=(agent_min_severity, agent_max) if agent_verify else None)
+    if agent_scope and store.agent_status()["state"] != "offline":
+        # the Kodand Agent crawls every file outside the static scope, which can take many minutes on
+        # a big repo: run it in the background (Live Scans shows the progress) instead of holding
+        # this request open — a closed tab or a proxy timeout must not lose the scan
+        threading.Thread(target=_run_scan_in_background, args=(run, pid, sid), daemon=True).start()
+        return {"id": sid, "project": pid, "status": "running", "label": label or Path(scan_root).name}
     try:
         # off the event loop so a concurrent GET .../progress can actually observe live updates
         # while this request is still in flight — an inline call here would block the whole
         # server (this handler is `async def`) for the entire scan duration.
-        result = await asyncio.to_thread(
-            run_template_scan, repo_path=scan_root, use_custom=bool(use_custom),
-            custom_dir=store.custom_templates_dir(), out_dir=sd, formats=("html", "json", "sarif"),
+        return await asyncio.to_thread(run)
+    except Exception as e:
+        raise HTTPException(500, f"Scan failed: {e}")
+
+
+def _execute_scan(pid: str, sid: str, scan_root: str, *, label, source, use_custom, workers, learned,
+                  scope_provider, agent_verify) -> dict:
+    """Run a console scan to completion and record it (scan.json, progress, auto-verify). On failure
+    the progress shows the error and the raw source is cleaned up; the exception propagates."""
+    try:
+        result = run_template_scan(
+            repo_path=scan_root, use_custom=use_custom,
+            custom_dir=store.custom_templates_dir(), out_dir=store.scan_dir(pid, sid), formats=("html", "json", "sarif"),
             on_progress=lambda stage, detail: store.write_scan_progress(pid, sid, stage, detail),
             workers=workers, extra_suppressions=store.sync_status_suppressions(pid),
-            trust_repo_suppressions=store.project_trusts_repo_suppressions(pid))
+            trust_repo_suppressions=store.project_trusts_repo_suppressions(pid),
+            learned_scope=learned, scope_provider=scope_provider)
     except Exception as e:
         store.finish_scan_progress(pid, sid, "error", {"message": str(e)})
         # keep progress.json/activity_log.json (delete_scan would wipe them too) so the failure
         # is still visible in Live Scans history — only the raw source gets cleaned up
-        store.delete_scan_target(pid, sid); raise HTTPException(500, f"Scan failed: {e}")
+        store.delete_scan_target(pid, sid)
+        raise
     meta = {"id": sid, "project": pid, "label": label or result["repository"], "created": store._now(),
-            "source": source, "use_custom": bool(use_custom), **result}
+            "source": source, "use_custom": use_custom, **result}
     store.save_scan_meta(pid, sid, meta)
     store.finish_scan_progress(pid, sid, "complete")
     _snapshot_storage_soon()
     if agent_verify:
         # the scan itself never waits on Claude: jobs are queued and run whenever the agent session is up
+        agent_min_severity, agent_max = agent_verify
         try:
             jobs = store.enqueue_scan_verification(pid, sid, agent_min_severity, agent_max, origin="auto")
         except ValueError as e:  # sharing switched off while the scan ran: keep the scan, report why
             return {**meta, "agent_jobs_queued": 0, "agent_error": str(e)}
         return {**meta, "agent_jobs_queued": len(jobs)}
     return meta
+
+
+def _run_scan_in_background(run, pid: str, sid: str) -> None:
+    try:
+        run()
+    except Exception:  # already recorded in the scan's progress (Live Scans shows the error)
+        logging.getLogger("kodand").exception("background scan %s/%s failed", pid, sid)
+
+
+@app.post("/api/projects/{pid}/scans/{sid}/skip-scope-crawl")
+def api_skip_scope_crawl(pid: str, sid: str):
+    """Stop the Kodand Agent scope crawl of a running scan; the scan continues with what it found."""
+    try:
+        return {"cancelled": skip_scope_crawl(pid, sid)}
+    except FileNotFoundError:
+        raise HTTPException(404, "Scan not found")
+
+
+# --- learned scope: suggestions from Kodand Agent crawls, approved into every scan's static scope ---
+
+@app.get("/api/scope/suggestions")
+def api_scope_suggestions(status: str = "pending"):
+    return store.list_scope_suggestions(None if status == "all" else status)
+
+
+@app.post("/api/scope/suggestions/{sug_id}/{action}")
+def api_scope_suggestion_action(sug_id: str, action: str):
+    try:
+        if action == "approve":
+            return store.approve_scope_suggestion(sug_id)
+        if action == "dismiss":
+            return store.dismiss_scope_suggestion(sug_id)
+    except FileNotFoundError:
+        raise HTTPException(404, "Suggestion not found")
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    raise HTTPException(400, "action must be approve or dismiss")
+
+
+@app.get("/api/scope/learned")
+def api_scope_learned():
+    return store.load_learned_scope_data()
+
+
+@app.delete("/api/scope/learned/{kind}")
+def api_scope_learned_remove(kind: str, value: str):
+    try:
+        return store.remove_learned_entry(kind, value)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
 
 
 @app.get("/api/scans/activity")

@@ -104,6 +104,9 @@ Notes:
 - `kodand mcp` prints nothing to stdout itself (stdio carries the MCP
   protocol); it's meant to be launched by an MCP client, not run directly in
   an interactive shell.
+- `kodand analyze` uses the locations and extensions you approved under
+  Settings → Learned scope (see the Kodand Agent scope crawl in section 6). Pass
+  `--no-learned-scope` to scan with the built-in registry only.
 - Every command supports `--verbose`/`-v` for debug logging and (where
   applicable) `--no-banner`.
 
@@ -399,6 +402,55 @@ needs to stay open (`journalctl --user -u kodand-agent -f` for its log,
 Claude Agent runs (last 24 h and all time). On a Claude plan that counts toward
 your usage limits; it isn't billed. Finished job records are pruned after 30 days.
 
+### Kodand Agent scope crawl — finding the agent files the static scan misses
+
+The same `kodand agent` worker can also complete a scan's **scope**. On the New
+scan form, **Expand scope with Kodand Agent** is ticked automatically while the
+worker runs (untick it to scan statically). The scan then:
+
+1. **Static pass.** Inventories the repository with the built-in registry and
+   your learned scope, as always.
+2. **Agent pass.** Sends every other text file to the Kodand Agent in batches of
+   about 25: path plus the first ~2 KB of each, one fresh Claude session per batch.
+   The agent reports the files that are agent content (skill, instructions, prompt,
+   subagent, MCP config, hook config, or a script the agent runs) with a one-line
+   reason. It can only add files, and only from its own batch. Paths outside it,
+   other types and missing files are rejected, and nothing it says removes a file
+   from scope.
+3. **Scan.** Matches the static scope plus the added files. Each added file is an
+   entrypoint marked `discovered_by: kodand-agent`.
+
+A crawling scan runs in the background. **Live Scans** shows an *Agent Scope*
+stage with batches, files crawled, files added and workers, and a log line for
+each added file with the agent's reason. **Skip crawl** continues with what was
+found so far. There is no overall time limit, but if the worker stops for two
+minutes the scan carries on without it. Verdicts are cached by path and content,
+so a re-scan only crawls new or changed files. Crawl batches run ahead of finding
+verification. Each batch costs about as much as one verification; Settings →
+Claude Agent shows the usage.
+
+The scan uses the static scope and logs the reason when:
+- the worker isn't running;
+- the project isn't shared with MCP;
+- the crawl fails.
+
+The report's **Kodand Agent Scope** section lists:
+- how the crawl went;
+- every added file, its type and the agent's reason;
+- the suggestions it raised.
+
+**Learned scope (Settings → Learned scope).** For each added file, Kodand
+suggests what would have let the static scan find it:
+- a **location** pattern such as `.assistant/playbooks/**/*.md`;
+- a file **extension** Kodand doesn't scan yet, such as `.xsh`.
+
+**Approve** adds it to `~/.kodand/scope_learned.json`. From then on every scan
+finds such files on its own, with or without the agent: the console,
+`kodand analyze` and the MCP `scan` tool. **Dismiss** stops it being suggested
+again. **Remove** (✕) takes an approved entry out. Only specific patterns can be
+approved; catch-alls (`*.md`, `**/*`) and application folders (`src/**`,
+`docs/*.md`) are refused, also when the file is edited by hand.
+
 ## 7. Custom templates
 
 A minimal custom template:
@@ -469,7 +521,10 @@ Everything lives under `~/.kodand/` by default (override with the
 `KODAND_HOME` environment variable): projects, scans, raw scanned source,
 reports, review overrides (statuses/comments), custom templates, and AI/MCP
 settings (including API keys — stored locally, never sent anywhere except the
-provider you explicitly configure).
+provider you explicitly configure). The Kodand Agent scope crawl adds:
+- `scope_crawl_cache.json`: per-file verdicts, so unchanged files aren't crawled again;
+- `scope_suggestions.json`: pending and decided suggestions;
+- `scope_learned.json`: the approved learned scope every scan uses.
 
 **Job files** are the copies of scanned source each scan keeps so findings can
 be reviewed in the files. They take most of the space. Settings → **Job files**

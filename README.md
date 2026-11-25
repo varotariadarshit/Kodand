@@ -135,7 +135,7 @@ patterns, it doesn't prove exploitability.
   category against a labeled corpus, plus a hand-reviewed real-world scan —
   see [Accuracy](#accuracy).
 
-Version **1.0.0**, rule pack `KODAND-1.0`.
+Version **2.0.0**, rule pack `KODAND-2.0`.
 
 ## Detection coverage
 
@@ -237,6 +237,32 @@ not yet in scope.
   markdown/text docs it refers to, shell scripts, and files it tells the agent
   to run (`python tools/x.py`, `node scripts/y.js`, `./bin/setup.ts`). A bare
   mention of application code (`routes live in server.ts`) is not followed.
+
+### Kodand Agent scope crawl (optional, web console)
+
+The registry can't know every team's layout. With **Expand scope with Kodand
+Agent** on (ticked automatically while `kodand agent` runs), a console scan
+works in two passes:
+1. the static scanner builds the scope as above;
+2. the Kodand Agent (your own Claude Code, see [Claude Agent](USER_GUIDE.md#claude-agent--verifying-from-the-web-console))
+   crawls **every other text file** in small batches, each in a fresh session, and
+   adds the ones that are agent content, such as `.assistant/playbooks/deploy.md`
+   or the script it tells the agent to run.
+
+The agent can only **add** files. Each addition is validated (its own batch only,
+a real file in the snapshot, an agent-content type), scanned as an entrypoint and
+listed in the report with the agent's reason. Application code, tests, data and CI
+are never added. Live Scans shows the crawl as it runs, with a **Skip crawl**
+button. Unchanged files are cached, so re-scans only crawl what changed. If the
+agent isn't running or the project isn't shared with MCP, the scan uses the
+static scope and logs why.
+
+**Learned scope.** Every file the agent adds raises a suggestion: the location
+pattern (e.g. `.assistant/playbooks/**/*.md`) or file extension (e.g. `.xsh`)
+that would have caught it. Approve suggestions in **Settings → Learned scope**,
+and every scan finds those files with no agent running: the console,
+`kodand analyze` (`--no-learned-scope` to opt out) and MCP `scan`. Catch-all
+patterns like `*.md` or application folders like `src/**` are refused.
 
 ## Install
 
@@ -394,7 +420,8 @@ server-side path; per-project suppressions), **Live Scans** (real-time pipeline
 and AI-verification progress for any running or recent scan, and the Claude Agent
 queue), **Custom Templates** (literal **and** regex, global), **Benchmark** (run
 precision/recall/F1 in-app), **Settings** (the AI provider for AI Review, MCP
-server setup, Claude Agent status and usage, and Job files retention and storage),
+server setup, Claude Agent status and usage, Learned scope suggestions, and Job
+files retention and storage),
 **About** (full AST/MCP/Hooks category reference). The sidebar shows whether a
 Claude Code MCP session (**Claude MCP**) and the Claude Agent worker (**Kodand
 Agent**) are connected.

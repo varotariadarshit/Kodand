@@ -295,7 +295,12 @@ thead th{background:var(--surface-2);text-transform:uppercase;font-size:.7rem;le
               </label>
               <div class="f"><label>Parallel workers</label>
                 <select id="scan-workers" title="Match files across several processes. Results are identical; it only helps on large repos."><option value="1">1 (sequential)</option></select></div>
-              <label class="flabel">Claude Agent</label>
+              <label class="flabel">Kodand Agent</label>
+              <label class="tog" title="Before matching, your Kodand Agent (kodand agent) crawls every file the static scan didn't cover and adds agent and skill files it missed. It can only add files, never remove them.">
+                <input type="checkbox" id="scan-scope" onchange="SCOPE_TOUCHED=true;toggleScanScope()"><span class="sw"></span>
+                <span>Expand scope with Kodand Agent</span>
+              </label>
+              <p id="scan-scope-hint" class="hint hide" style="margin-top:0"></p>
               <label class="tog" title="After the scan, send its findings to your Claude Agent session (kodand agent); each verdict arrives as a comment">
                 <input type="checkbox" id="scan-agent" onchange="toggleScanAgent()"><span class="sw"></span>
                 <span>Verify findings with Claude Agent after the scan</span>
@@ -492,6 +497,13 @@ thead th{background:var(--surface-2);text-transform:uppercase;font-size:.7rem;le
         </div>
       </div>
 
+      <div class="panel" id="learned-scope-panel">
+        <h2>Learned scope</h2>
+        <div class="small muted" style="margin-bottom:16px">When the Kodand Agent finds an agent or skill file the static scan missed, it suggests the file location or extension that would have caught it. Approve a suggestion and every scan — console, <code>kodand analyze</code> and MCP — finds files like it without the agent. Only specific locations can be approved; catch-alls like <code>*.md</code> or application folders are refused.</div>
+        <div class="f"><label>Pending suggestions</label><div id="scope-suggestions" class="small muted">–</div></div>
+        <div class="f"><label>Approved</label><div id="scope-learned" class="small muted">–</div></div>
+      </div>
+
       <div class="panel" id="jobfiles-panel">
         <h2>Job files</h2>
         <div class="small muted" style="margin-bottom:16px">The scanned source each scan keeps so you can review findings in the files themselves. Deleting job files removes only those copies: findings, reports, comments and verdicts stay. Scans tagged <b>Keep</b> are never deleted automatically; untag one and it's deleted at the next hourly cleanup if it's already past the retention period. Scans Claude Agent is still verifying are skipped until it's done.</div>
@@ -584,7 +596,7 @@ function activateTab(name){
   TABS.forEach(n=>document.getElementById('tab-'+n).classList.toggle('hide',n!==name));
   if(name==='projects')showProjects();
   if(name==='templates')loadTemplates();
-  if(name==='settings'){loadAiSettings();loadMcpSettings();loadAgentPanel();loadJobFiles();loadStorageChart();}
+  if(name==='settings'){loadAiSettings();loadMcpSettings();loadAgentPanel();loadLearnedScope();loadJobFiles();loadStorageChart();}
   clearInterval(window.AGENT_PANEL_TIMER);
   if(name==='settings')window.AGENT_PANEL_TIMER=setInterval(loadAgentPanel,10000);
   if(name==='activity'){closeActivityDetail();}
@@ -633,13 +645,34 @@ async function pollAgentStatus(){
       el.title=`No kodand agent worker running${s.queued?` — ${s.queued} finding${s.queued===1?'':'s'} waiting`:''}. Start it with: kodand agent`;}
     else{el.textContent=s.state==='busy'?`● Connected · verifying ${s.running}`:'● Connected';el.style.color='var(--green)';
       el.title=`kodand agent worker running${how} · ${s.running} verifying, ${s.queued} queued`;}
+    syncScopeToggle(s);
   }catch(e){}
+}
+// "Expand scope with Kodand Agent" follows the worker: on while it runs, off when it's not —
+// until the user flips it themselves
+let SCOPE_TOUCHED=false;
+function syncScopeToggle(s){
+  const cb=document.getElementById('scan-scope');if(!cb)return;
+  if(!SCOPE_TOUCHED)cb.checked=s.state!=='offline';
+  toggleScanScope(s);
+}
+async function toggleScanScope(s){
+  const cb=document.getElementById('scan-scope'),hint=document.getElementById('scan-scope-hint');if(!cb||!hint)return;
+  if(!cb.checked){hint.classList.add('hide');return;}
+  hint.classList.remove('hide');hint.style.color='';
+  const shared=document.getElementById('p-mcp-shared');
+  if(shared&&!shared.checked){hint.textContent='Turn on “Share with MCP agents” for this project first — the Kodand Agent reads files through Kodand’s MCP tools. Until then the scan uses the static scope.';hint.style.color='#f4547a';return;}
+  try{s=s||await api('/api/agent/status');}catch(e){}
+  hint.textContent=s&&s.state!=='offline'
+    ?'The Kodand Agent crawls every file outside the static scope before matching — follow it in Live Scans. Each batch uses your Claude plan’s usage; unchanged files are cached.'
+    :'Kodand Agent isn’t running (start it with kodand agent), so this scan will use the static scope.';
 }
 pollAgentStatus();setInterval(pollAgentStatus,10000);
 
 const PIPELINE_STAGES=[
   {key:'starting',label:'Ingest',svg:'<path d="M12 3v11M7 9l5 5 5-5"/><path d="M4 21h16"/>'},
   {key:'inventory',label:'Inventory',svg:'<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>'},
+  {key:'agent_scope',label:'Agent Scope',svg:'<circle cx="11" cy="11" r="7"/><path d="M16 16l5 5"/><path d="M11 8v6M8 11h6"/>'},
   {key:'matching',label:'Template Matching',svg:'<circle cx="10" cy="10" r="6.5"/><path d="M15 15l6 6"/>'},
   {key:'accuracy',label:'Accuracy Pipeline',svg:'<path d="M4 20V10M12 20V4M20 20v-7"/>'},
   {key:'suppression',label:'Suppression',svg:'<path d="M12 3l7 3v6c0 5-3.2 8-7 9-3.8-1-7-4-7-9V6z"/>'},
@@ -743,6 +776,10 @@ function describeLogEntry(stage,detail){
   detail=detail||{};
   const info=PIPELINE_STAGES.find(s=>s.key===stage);
   const name=info?info.label.toUpperCase():String(stage).toUpperCase();
+  if(stage==='agent_scope'&&detail.message){
+    const m=String(detail.message);
+    return {kind:/^Kodand Agent added/.test(m)?'ok':/failed|stopped/.test(m)?'err':'info', text:`KODAND AGENT — ${escHtml(m.replace(/^Kodand Agent /,''))}`};
+  }
   if(stage==='verifying') return {kind:'info', text:`${name} — <code>${escHtml(detail.finding_id||'?')}</code> verified (${detail.verified||0}/${detail.total||0})`};
   if(stage==='complete') return {kind:'ok', text:`${name} — scan complete`};
   if(stage==='error') return {kind:'err', text:`SCAN FAILED — ${escHtml(detail.message||'unknown error')}`};
@@ -804,6 +841,9 @@ function renderPipeline(prog){
     return `<div class="${cls}" onclick="showBlockDetail('${s.key}')"><div class="stage-icon">${stageIconSvg(s)}</div><div class="stage-name">${s.label}</div></div>`;
   }).join('');
   showBlockDetail(idx>=0?stage:PIPELINE_STAGES[0].key);
+  if(stage==='agent_scope' && !detail.message && status==='running'){
+    logLiveLine(`KODAND AGENT — crawling scope: batch ${detail.batches_done||0}/${detail.batches||0} · ${detail.files_crawled||0}/${detail.files_total||0} files · ${detail.added||0} added · ${detail.workers||0} worker(s)`);
+  }
   if(stage==='matching'){
     const cf=escHtml(detail.current_file||'…');
     logLiveLine(`TEMPLATE MATCHING — scanning <code>${cf}</code> (${detail.scanned||0}/${detail.total||0})`);
@@ -824,6 +864,16 @@ function showBlockDetail(stageKey){
       <div class="small muted">${scanned} of ${total} files scanned · ${remaining} remaining</div>
       <div class="progress-bar"><div style="width:${pct}%"></div></div>
       <div class="hash">Currently scanning: ${escHtml(d.current_file)||'—'}</div>`;
+    return;
+  }
+  if(stageKey==='agent_scope' && ACT_LAST.stage==='agent_scope'){
+    const d=ACT_LAST.detail||{}; const total=d.files_total||0, crawled=d.files_crawled||0;
+    const pct=total?Math.round(crawled/total*100):0, running=ACT_LAST.status==='running';
+    el.innerHTML=`<h2 style="font-size:14px">Kodand Agent scope crawl</h2>
+      <div class="small muted">${crawled} of ${total} files crawled · batch ${d.batches_done||0}/${d.batches||0} · ${d.added||0} agent file(s) added · ${d.workers||0} worker(s)</div>
+      <div class="progress-bar"><div style="width:${pct}%"></div></div>
+      <div class="small muted" style="margin-top:8px">The agent can only add files to the scope. Skipping keeps what it found so far and continues the scan.</div>
+      ${running?'<button class="ghostbtn" style="margin-top:10px" onclick="skipScopeCrawl()">Skip crawl</button>':''}`;
     return;
   }
   if(stageKey==='verifying' && ACT_LAST.stage==='verifying'){
@@ -864,8 +914,8 @@ async function loadAgentQueue(){
   const all=jobs.every(j=>QUEUE_SELECTED.has(j.id));
   el.innerHTML=`<table><thead><tr><th style="width:34px"><input type="checkbox" ${all?'checked':''} onchange="queueSelectAll(this.checked)" title="Select all"></th><th>Status</th><th>Finding</th><th>Project / scan</th><th>Queued</th><th></th></tr></thead><tbody>${jobs.map(j=>`<tr>
     <td><input type="checkbox" ${QUEUE_SELECTED.has(j.id)?'checked':''} onchange="queueSelect('${j.id}',this.checked)"></td>
-    <td>${j.status==='running'?'<span style="color:var(--green)">● Verifying</span>':'Queued'}</td>
-    <td>${sevBadge(j.severity||'informational')} ${escHtml(j.title||j.finding_id)}</td>
+    <td>${j.status==='running'?`<span style="color:var(--green)">● ${j.kind==='scope_batch'?'Crawling':'Verifying'}</span>`:'Queued'}</td>
+    <td>${j.kind==='scope_batch'?`<span class="badge informational">Scope</span> ${escHtml(j.title)} <span class="small muted">(${(j.paths||[]).length} files)</span>`:`${sevBadge(j.severity||'informational')} ${escHtml(j.title||j.finding_id)}`}</td>
     <td>${escHtml(j.project_name||j.project_id)}<div class="small muted">${escHtml(j.scan_label||j.scan_id)}</div></td>
     <td class="small muted" title="${escHtml(j.created)}">${ago(j.created)}${j.origin==='auto'?' · auto':''}</td>
     <td><button class="hx-x" title="Remove from the queue" onclick="removeQueuedOne('${j.id}')">✕</button></td></tr>`).join('')}</tbody></table>`;
@@ -920,6 +970,7 @@ function showProject(p){
   document.getElementById('scan-agent-max').value='';
   toggleScanAgent();
   document.getElementById('p-mcp-shared').checked=!!p.mcp_shared;
+  toggleScanScope();  // its hint depends on this project's sharing
   document.getElementById('p-trust-repo').checked=!!p.trust_repo_suppressions;
   loadScans();
   loadSuppressions();
@@ -963,7 +1014,7 @@ async function toggleProjectMcpSharing(){
     const n=r.cancelled_agent_jobs||0;
     toast(cb.checked?'Shared with MCP agents':'MCP sharing disabled for this project'+(n?` — ${n} queued Claude Agent job${n===1?'':'s'} cancelled`:''));
   }catch(e){cb.checked=!cb.checked;toast(e.message,false);}
-  toggleScanAgent();
+  toggleScanAgent();toggleScanScope();
 }
 // folder and archive pickers are mutually exclusive — picking one clears the other
 function selectedUpload(){
@@ -1126,7 +1177,58 @@ async function loadScans(){
     </div>`;
   }).join('');
 }
-async function runScan(){const st=document.getElementById('scan-status');st.textContent='Running…';const fd=new FormData();const path=document.getElementById('scan-path').value.trim();const files=selectedUpload();const label=document.getElementById('scan-label').value.trim();const custom=document.getElementById('scan-custom').checked;if(path)fd.append('repo_path',path);for(const f of files)fd.append('files',f,f.webkitRelativePath||f.name);fd.append('use_custom',custom?'true':'false');fd.append('workers',document.getElementById('scan-workers').value||'1');if(label)fd.append('label',label);if(document.getElementById('scan-agent').checked){fd.append('agent_verify','true');fd.append('agent_min_severity',document.getElementById('scan-agent-sev').value);fd.append('agent_max_findings',document.getElementById('scan-agent-max').value.trim());}if(!path && !files.length){st.textContent='';return toast('Provide a path or upload files',false);}try{const r=await api('/api/projects/'+CUR.id+'/scans',{method:'POST',body:fd});st.textContent='';if(!r.skills){toast(`Scan complete, but no skill files were found — nothing matched SKILL.md, GEMINI.md, AGENTS.md, etc. Check you picked the skill folder (or its .zip), not a parent directory.`,false);}else{const wn=(r.warnings||[]).length;toast(`Scan complete — ${r.findings} findings across ${r.skills} skill(s) (${r.overall_risk})${r.agent_jobs_queued!=null?` · ${r.agent_jobs_queued} queued for Claude Agent`:''}${wn?` · ${wn} coverage warning(s), see the report`:''}`,!wn);}if(r.agent_error)toast(r.agent_error,false);loadScans();loadMeta();}catch(e){st.textContent='';toast(e.message,false);}}
+async function runScan(){const st=document.getElementById('scan-status');st.textContent='Running…';const fd=new FormData();const path=document.getElementById('scan-path').value.trim();const files=selectedUpload();const label=document.getElementById('scan-label').value.trim();const custom=document.getElementById('scan-custom').checked;if(path)fd.append('repo_path',path);for(const f of files)fd.append('files',f,f.webkitRelativePath||f.name);fd.append('use_custom',custom?'true':'false');fd.append('workers',document.getElementById('scan-workers').value||'1');if(label)fd.append('label',label);if(document.getElementById('scan-scope').checked)fd.append('agent_scope','true');if(document.getElementById('scan-agent').checked){fd.append('agent_verify','true');fd.append('agent_min_severity',document.getElementById('scan-agent-sev').value);fd.append('agent_max_findings',document.getElementById('scan-agent-max').value.trim());}if(!path && !files.length){st.textContent='';return toast('Provide a path or upload files',false);}try{const r=await api('/api/projects/'+CUR.id+'/scans',{method:'POST',body:fd});st.textContent='';if(r.status==='running'){toast('Scan started — the Kodand Agent is crawling the repository for agent files the static scan missed. Follow it in Live Scans.');watchBackgroundScan(CUR.id,r.id);return;}scanDoneToast(r);loadScans();loadMeta();}catch(e){st.textContent='';toast(e.message,false);}}
+function scanDoneToast(r){if(!r.skills){toast(`Scan complete, but no skill files were found — nothing matched SKILL.md, GEMINI.md, AGENTS.md, etc. Check you picked the skill folder (or its .zip), not a parent directory.`,false);}else{const wn=(r.warnings||[]).length;toast(`Scan complete — ${r.findings} findings across ${r.skills} skill(s) (${r.overall_risk})${r.agent_jobs_queued!=null?` · ${r.agent_jobs_queued} queued for Claude Agent`:''}${wn?` · ${wn} coverage warning(s), see the report`:''}`,!wn);}if(r.agent_error)toast(r.agent_error,false);}
+// a scan running in the background (Kodand Agent scope crawl): tell the user when it's done
+function watchBackgroundScan(pid,sid){
+  const st=document.getElementById('scan-status');
+  const tick=async()=>{
+    try{
+      const prog=await api(`/api/projects/${pid}/scans/${sid}/progress`);
+      if(prog.status==='failed'){st.textContent='';toast('Scan failed: '+((prog.detail||{}).message||'unknown error'),false);return;}
+      if(prog.stage==='complete'||prog.status==='completed'||prog.status==='verified'){
+        st.textContent='';const meta=(await api('/api/projects/'+pid+'/scans')).find(x=>x.id===sid);
+        if(meta)scanDoneToast(meta);if(CUR&&CUR.id===pid){loadScans();loadMeta();}return;
+      }
+      const d=prog.detail||{};
+      st.textContent=prog.stage==='agent_scope'&&d.files_total!=null?`Kodand Agent crawling: ${d.files_crawled||0}/${d.files_total} files, ${d.added||0} added…`:'Running in the background…';
+    }catch(e){}
+    setTimeout(tick,3000);
+  };
+  tick();
+}
+async function skipScopeCrawl(){
+  if(!ACT_CUR)return;
+  if(!await appConfirm('Skip the rest of the Kodand Agent scope crawl? The scan keeps the agent files found so far and continues.','Skip crawl'))return;
+  try{const r=await api(`/api/projects/${ACT_CUR.pid}/scans/${ACT_CUR.sid}/skip-scope-crawl`,{method:'POST'});toast(`Scope crawl skipped (${r.cancelled} batch${r.cancelled===1?'':'es'} not crawled)`);}catch(e){toast(e.message,false);}
+}
+// Settings -> Learned scope: approve what the Kodand Agent taught, so the static scan finds it too
+const SCOPE_KIND_LABEL={extension:'File extension',name:'File name',location:'Location'};
+async function loadLearnedScope(){
+  const sEl=document.getElementById('scope-suggestions'),lEl=document.getElementById('scope-learned');if(!sEl)return;
+  let sug,learned;
+  try{[sug,learned]=await Promise.all([api('/api/scope/suggestions'),api('/api/scope/learned')]);}catch(e){return;}
+  sEl.innerHTML=sug.length?`<table><thead><tr><th>Suggestion</th><th>Evidence</th><th>Seen</th><th></th></tr></thead><tbody>${sug.map(x=>`<tr>
+    <td><div class="small muted">${SCOPE_KIND_LABEL[x.kind]||x.kind}${x.extension_type?` · ${escHtml(x.extension_type)}`:''}</div><code>${escHtml(x.value)}</code></td>
+    <td><code>${escHtml(x.example||'')}</code><div class="small muted">${escHtml(x.reason||'')}</div></td>
+    <td class="small muted">${x.seen||1}×</td>
+    <td style="white-space:nowrap"><button class="ghostbtn" onclick="decideScopeSuggestion('${x.id}','approve')">Approve</button> <button class="ghostbtn" onclick="decideScopeSuggestion('${x.id}','dismiss')">Dismiss</button></td></tr>`).join('')}</tbody></table>`
+    :'No pending suggestions. They appear here after a scan where the Kodand Agent added a file the static scan missed.';
+  const rows=[...learned.locations.map(l=>({kind:'location',value:l.pattern,extra:l.extension_type})),
+    ...learned.extensions.map(v=>({kind:'extension',value:v})),...learned.names.map(v=>({kind:'name',value:v}))];
+  lEl.innerHTML=rows.length?`<table><tbody>${rows.map(r=>`<tr><td class="small muted">${SCOPE_KIND_LABEL[r.kind]}${r.extra?` · ${escHtml(r.extra)}`:''}</td><td><code>${escHtml(r.value)}</code></td>
+    <td><button class="hx-x" title="Remove from the learned scope" onclick="removeLearnedScope('${r.kind}',${escHtml(JSON.stringify(r.value))})">✕</button></td></tr>`).join('')}</tbody></table>`
+    :'Nothing approved yet — scans use the built-in registry only.';
+}
+async function decideScopeSuggestion(id,action){
+  try{await api(`/api/scope/suggestions/${id}/${action}`,{method:'POST'});toast(action==='approve'?'Added to the scan scope — every scan now finds files like it':'Suggestion dismissed');}catch(e){toast(e.message,false);}
+  loadLearnedScope();
+}
+async function removeLearnedScope(kind,value){
+  if(!await appConfirm(`Remove ${value} from the learned scope? Scans stop looking for it unless the Kodand Agent finds it again.`,'Remove'))return;
+  try{await api(`/api/scope/learned/${kind}?value=${encodeURIComponent(value)}`,{method:'DELETE'});}catch(e){toast(e.message,false);}
+  loadLearnedScope();
+}
 const AGENT_STATE={
   offline:{text:'○ Not running — start it with kodand agent in a terminal; queued jobs wait until it starts',color:'var(--text-faint)'},
   busy:{text:'● Running · verifying',color:'var(--green)'},

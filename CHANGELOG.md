@@ -3,9 +3,26 @@
 All notable changes to this project are documented in this file.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [2.0.0] - 2026-11-25
 
 ### Added
+- **Kodand Agent scope crawl** (web console):
+  - with "Expand scope with Kodand Agent" on and `kodand agent` running, the agent
+    crawls every text file outside the static scope, one fresh Claude session per
+    batch of about 25, and adds the files that are agent content;
+  - it can only add files, and only validated ones from its own batch;
+  - the crawl runs in the background with live progress, durable log lines,
+    Skip crawl and per-file caching;
+  - if the agent is offline or the project isn't shared, the scan uses the static scope;
+  - the report gains a Kodand Agent Scope section.
+- **Learned scope**:
+  - each addition raises a location or extension suggestion;
+  - approved suggestions (Settings → Learned scope) extend the static registry
+    for the console, `kodand analyze` (`--no-learned-scope` to opt out) and MCP
+    `scan`, so files like it are found without the agent;
+  - catch-all and application-folder patterns are refused.
+- HTML report sections collapse and expand (Collapse all / Expand all); the
+  closed ones are remembered per browser.
 - Discovery of current agent artifacts across platforms: CLAUDE.md, Claude Code
   rules/commands/subagents/plugins, `.agents/skills`, Codex `config.toml`/hooks, Gemini
   `settings.json`/commands, Copilot prompts/agents/hooks/`.vscode/mcp.json`, Cursor hooks

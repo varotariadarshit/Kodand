@@ -847,14 +847,16 @@ def expire_agent_jobs() -> None:
 
 def claim_next_agent_job(agent_id: str, max_running: int = 1) -> dict | None:
     """The next job for this worker to run, or None while it already runs `max_running` (its
-    --parallel). Manual requests go before auto-verify batches so a click in the UI doesn't wait
-    behind a whole scan."""
+    --parallel). Scope-crawl batches (a scan is waiting on them) go first, then manual requests before
+    auto-verify batches so a click in the UI doesn't wait behind a whole scan."""
     expire_agent_jobs()
     with _agent_lock():
         jobs = _load_agent_jobs()
         if sum(1 for j in jobs if j.get("claimed_by") == agent_id and j["status"] == "running") >= max_running:
             return None
-        queued = sorted((j for j in jobs if j["status"] == "queued"), key=lambda j: (j.get("origin") != "manual", j.get("seq", 0)))
+        # a scan is blocked on its scope-crawl batches, so they go first; then manual verify requests
+        queued = sorted((j for j in jobs if j["status"] == "queued"),
+                        key=lambda j: (j.get("kind") != "scope_batch", j.get("origin") != "manual", j.get("seq", 0)))
         if not queued:
             return None
         job = queued[0]
@@ -983,6 +985,192 @@ def retry_agent_job(jid: str) -> dict:
         job.update(status="queued", attempts=0)
         for k in ("error", "finished", "claimed_by", "started"): job.pop(k, None)
         return _save_agent_job(job)
+
+
+# --- Kodand Agent scope crawl: batch jobs, crawl cache, learning suggestions -----------------
+# A scan with "Expand scope with Kodand Agent" queues one `scope_batch` job per batch of files
+# (kodand.scope_agent.plan_crawl); the worker runs a fresh Claude session per batch, which reports
+# additions through the report_scope_batch MCP tool. The scan waits for the batches (server.py).
+
+SCOPE_JOB_KIND = "scope_batch"
+
+
+def enqueue_scope_batches(pid: str, sid: str, batches: list, context: list | None = None) -> list:
+    """One queued scope_batch job per batch of repo-relative paths. Needs MCP sharing: the agent's
+    Claude reads the files through Kodand's MCP tools, the same consent as finding verification.
+    `context`: a few files the static scan already covers, shown to the agent as examples."""
+    require_mcp_shared(pid)
+    total = len(batches)
+    out = []
+    with _agent_lock():
+        for n, paths in enumerate(batches, 1):
+            out.append(_save_agent_job({
+                "id": uuid.uuid4().hex[:12], "kind": SCOPE_JOB_KIND, "project_id": pid, "scan_id": sid,
+                "finding_id": "", "title": f"Scope crawl · batch {n}/{total}", "severity": "",
+                "batch_no": n, "batch_total": total, "paths": list(paths), "context": list(context or [])[:40],
+                "origin": "scope",
+                "status": "queued", "created": _now(), "seq": time.time_ns(), "attempts": 0}))
+    return out
+
+
+def scope_batch_jobs(pid: str, sid: str) -> list:
+    expire_agent_jobs()
+    return [j for j in _load_agent_jobs()
+            if j.get("kind") == SCOPE_JOB_KIND and j["project_id"] == pid and j["scan_id"] == sid]
+
+
+def complete_scope_job(jid: str, agent_id: str, additions: list, rejected: list) -> dict:
+    with _agent_lock():
+        job = _claimed_job(jid, agent_id)
+        if job.get("kind") != SCOPE_JOB_KIND:
+            raise ValueError(f"Job {jid} is not a scope-crawl job.")
+        job.update(status="done", additions=additions, rejected=rejected[:50], finished=_now())
+        job.pop("error", None)
+        return _save_agent_job(job)
+
+
+SCOPE_CACHE_MAX = 200_000
+
+
+def _scope_cache_path() -> Path:
+    return workspace_root() / "scope_crawl_cache.json"
+
+
+def load_scope_crawl_cache() -> dict:
+    return _read_json(_scope_cache_path()) or {}
+
+
+def update_scope_crawl_cache(entries: dict) -> None:
+    """entries: {scope_agent.cache_key(rel, sha): {"add": bool, "type"?, "reason"?, "suggested_pattern"?}}."""
+    if not entries:
+        return
+    p = _scope_cache_path()
+    with _file_lock(p, "Kodand Agent crawl cache"):
+        cache = _read_json(p) or {}
+        now = _now()
+        for k, v in entries.items():
+            cache[k] = {**v, "at": now}
+        if len(cache) > SCOPE_CACHE_MAX:  # keep the newest verdicts
+            keep = sorted(cache.items(), key=lambda kv: kv[1].get("at", ""), reverse=True)[:SCOPE_CACHE_MAX]
+            cache = dict(keep)
+        _write_json_atomic(p, cache)
+
+
+def _suggestions_path() -> Path:
+    return workspace_root() / "scope_suggestions.json"
+
+
+def _learned_path() -> Path:
+    from kodand.learned_scope import LEARNED_FILE
+    return workspace_root() / LEARNED_FILE
+
+
+def _suggestion_id(s: dict) -> str:
+    return hashlib.sha256(f"{s['kind']}|{s['value']}|{s.get('extension_type', '')}".encode()).hexdigest()[:12]
+
+
+def load_learned_scope_data() -> dict:
+    data = _read_json(_learned_path()) or {}
+    return {"extensions": sorted(data.get("extensions") or []), "names": sorted(data.get("names") or []),
+            "locations": list(data.get("locations") or [])}
+
+
+def _is_learned(data: dict, s: dict) -> bool:
+    if s["kind"] == "extension":
+        return s["value"] in data["extensions"]
+    if s["kind"] == "name":
+        return s["value"] in data["names"]
+    return any(loc.get("pattern") == s["value"] for loc in data["locations"])
+
+
+def record_scope_suggestions(suggestions: list, pid: str, sid: str) -> list:
+    """Merge suggestions raised by a scan into the pending list (deduped; seen-count and latest
+    evidence kept). Already-approved or dismissed ones aren't raised again. Returns the new ones."""
+    if not suggestions:
+        return []
+    p = _suggestions_path()
+    fresh = []
+    with _file_lock(p, "scope suggestions"):
+        data = _read_json(p) or {"items": {}}
+        items = data.setdefault("items", {})
+        learned = load_learned_scope_data()
+        for s in suggestions:
+            if _is_learned(learned, s):
+                continue
+            sid_ = _suggestion_id(s)
+            cur = items.get(sid_)
+            if cur is None:
+                cur = items[sid_] = {"id": sid_, "kind": s["kind"], "value": s["value"],
+                                     "extension_type": s.get("extension_type"), "status": "pending",
+                                     "first_seen": _now(), "seen": 0}
+                fresh.append(cur)
+            cur.update(seen=cur.get("seen", 0) + 1, last_seen=_now(), example=s.get("example"),
+                       reason=(s.get("reason") or "")[:300], type=s.get("type"), project_id=pid, scan_id=sid)
+        _write_json_atomic(p, data)
+    return fresh
+
+
+def list_scope_suggestions(status: str | None = "pending") -> list:
+    items = list(((_read_json(_suggestions_path()) or {}).get("items") or {}).values())
+    if status:
+        items = [i for i in items if i.get("status") == status]
+    return sorted(items, key=lambda i: i.get("last_seen", ""), reverse=True)
+
+
+def _set_suggestion_status(sug_id: str, status: str) -> dict:
+    p = _suggestions_path()
+    with _file_lock(p, "scope suggestions"):
+        data = _read_json(p) or {"items": {}}
+        item = (data.get("items") or {}).get(sug_id)
+        if item is None:
+            raise FileNotFoundError("suggestion not found")
+        item.update(status=status, decided=_now())
+        _write_json_atomic(p, data)
+        return item
+
+
+def approve_scope_suggestion(sug_id: str) -> dict:
+    """Add a suggestion to the learned scope every scan uses (re-validated: a catch-all pattern or a
+    malformed extension is refused even if it somehow got into the suggestions file)."""
+    from kodand.learned_scope import parse_learned
+    item = next((i for i in list_scope_suggestions(None) if i["id"] == sug_id), None)
+    if item is None:
+        raise FileNotFoundError("suggestion not found")
+    lp = _learned_path()
+    with _file_lock(lp, "learned scope"):
+        data = load_learned_scope_data()
+        if item["kind"] == "extension":
+            data["extensions"] = sorted(set(data["extensions"]) | {item["value"]})
+        elif item["kind"] == "name":
+            data["names"] = sorted(set(data["names"]) | {item["value"]})
+        elif not any(loc.get("pattern") == item["value"] for loc in data["locations"]):
+            data["locations"].append({"pattern": item["value"], "extension_type": item.get("extension_type")})
+        check = parse_learned(data)
+        if (len(check.extensions), len(check.names), len(check.locations)) != (
+                len(data["extensions"]), len(data["names"]), len(data["locations"])):
+            raise ValueError(f"'{item['value']}' isn't specific enough to add to the scan scope.")
+        _write_json_atomic(lp, data)
+    return _set_suggestion_status(sug_id, "approved")
+
+
+def dismiss_scope_suggestion(sug_id: str) -> dict:
+    return _set_suggestion_status(sug_id, "dismissed")
+
+
+def remove_learned_entry(kind: str, value: str) -> dict:
+    lp = _learned_path()
+    with _file_lock(lp, "learned scope"):
+        data = load_learned_scope_data()
+        if kind == "extension":
+            data["extensions"] = [x for x in data["extensions"] if x != value]
+        elif kind == "name":
+            data["names"] = [x for x in data["names"] if x != value]
+        elif kind == "location":
+            data["locations"] = [x for x in data["locations"] if x.get("pattern") != value]
+        else:
+            raise ValueError("kind must be extension, name or location")
+        _write_json_atomic(lp, data)
+    return data
 
 
 def touch_agent_worker(pid: int, started_at: str, stopped: bool = False, parallel: int = 1, service: bool = False) -> None:
@@ -1164,7 +1352,8 @@ def write_scan_progress(pid: str, sid: str, stage: str, detail: dict | None = No
         # every "matching" per-file tick, which would blow up an already-durable log for a big repo
         changed_stage = prev.get("stage") != stage
         changed_finding = stage == "verifying" and (prev.get("detail") or {}).get("finding_id") != detail.get("finding_id")
-        if changed_stage or changed_finding:
+        # an explicit log line (e.g. "Kodand Agent added .ai/x.md — reason") is always kept
+        if changed_stage or changed_finding or detail.get("log"):
             _append_scan_log(pid, sid, stage, detail)
         _write_json_atomic(_progress_path(pid, sid), {"stage": stage, "detail": detail, "updated": _now()})
 

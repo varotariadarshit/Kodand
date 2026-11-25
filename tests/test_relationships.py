@@ -147,6 +147,7 @@ def test_run_targets_are_extracted_from_execution_wording():
     from kodand.relationships import extract_run_targets
     text = ("Run `python tools/check.py --fast`, then `node scripts/build.js`.\n"
             "```\nbash ./setup.sh\npowershell -ExecutionPolicy Bypass -File scripts/a.ps1\n./bin/run.ts\n```\n"
-            "Routes are in `server.ts`; shared helpers in ../shared/util.py.\n")
+            "Routes are in `server.ts`; shared helpers in ../shared/util.py.\n"
+            "1. Run `tools/sync.xsh` to sync. See `docs/api.ts` for the shape.\n")
     assert extract_run_targets(text) == {"tools/check.py", "scripts/build.js", "./setup.sh", "scripts/a.ps1",
-                                         "./bin/run.ts"}
+                                         "./bin/run.ts", "tools/sync.xsh"}

@@ -12,9 +12,17 @@ class SkillMetadata(BaseModel):
  name:str|None=None;description:str|None=None;license:str|None=None;compatibility:str|None=None;allowed_tools:list[str]=Field(default_factory=list);additional_fields:dict[str,Any]=Field(default_factory=dict)
 class AgentExtension(BaseModel):
  extension_id:str;platform:str;extension_type:str;root_path:str;entrypoint:str;metadata:SkillMetadata;instruction_line_count:int=0;supporting_files:list[FileArtifact]=Field(default_factory=list);parse_errors:list[str]=Field(default_factory=list);undeclared_supporting_files:list[str]=Field(default_factory=list);broken_references:list[str]=Field(default_factory=list);referenced_files:list[str]=Field(default_factory=list)
+ # "static" (the entrypoint registry, incl. user-approved learned locations) or "kodand-agent"
+ # (added by the Kodand Agent scope crawl, with the agent's reason)
+ discovered_by:str="static";discovery_reason:str|None=None
 class PlatformDetection(BaseModel):
  platform:str;confidence:Literal["high","medium","low"];evidence:list[str]=Field(default_factory=list)
 class ScanWarning(BaseModel):
  code:str;message:str;path:str|None=None
+class AgentScopeInfo(BaseModel):
+ """How the Kodand Agent scope crawl went for this scan. status: used | partial | skipped |
+ offline | not_shared | disabled. `added` = [{path, type, reason}], `suggestions` = learning
+ suggestions raised ([{kind, value, extension_type?, example, reason}])."""
+ status:str;detail:str|None=None;files_total:int=0;files_crawled:int=0;files_cached:int=0;binary_skipped:int=0;batches:int=0;batches_done:int=0;batches_failed:int=0;duration_s:float=0.0;added:list[dict[str,Any]]=Field(default_factory=list);suggestions:list[dict[str,Any]]=Field(default_factory=list)
 class RepositoryInventory(BaseModel):
- scanner_version:str=__version__;scan_type:str="inventory";repository_name:str;repository_root:str;scanned_at:datetime=Field(default_factory=lambda:datetime.now(timezone.utc));platforms:list[PlatformDetection]=Field(default_factory=list);extensions:list[AgentExtension]=Field(default_factory=list);repository_artifacts:list[FileArtifact]=Field(default_factory=list);warnings:list[ScanWarning]=Field(default_factory=list);files_examined:int=0;directories_examined:int=0;excluded_paths:list[str]=Field(default_factory=list)
+ scanner_version:str=__version__;scan_type:str="inventory";repository_name:str;repository_root:str;scanned_at:datetime=Field(default_factory=lambda:datetime.now(timezone.utc));platforms:list[PlatformDetection]=Field(default_factory=list);extensions:list[AgentExtension]=Field(default_factory=list);repository_artifacts:list[FileArtifact]=Field(default_factory=list);warnings:list[ScanWarning]=Field(default_factory=list);files_examined:int=0;directories_examined:int=0;excluded_paths:list[str]=Field(default_factory=list);agent_scope:AgentScopeInfo|None=None

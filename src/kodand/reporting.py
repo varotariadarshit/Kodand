@@ -49,6 +49,15 @@ code{font-family:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,mon
 h1,h2,h3,h4{line-height:1.25;margin:0 0 .5em}
 .glass{background:var(--glass);backdrop-filter:blur(16px) saturate(140%);-webkit-backdrop-filter:blur(16px) saturate(140%);border:1px solid var(--border);border-radius:18px;box-shadow:var(--shadow);padding:22px 24px;margin:18px 0}
 .section-title{font-size:.82rem;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);margin:26px 4px 6px}
+.wrap>.section-title.sec-toggle{cursor:pointer;user-select:none;display:flex;align-items:center;gap:8px}
+.wrap>.section-title.sec-toggle:hover{color:var(--text,#e2e8f0)}
+.sec-chev{display:inline-block;transition:transform .15s;font-size:.7rem}
+.sec-toggle.sec-closed .sec-chev{transform:rotate(-90deg)}
+.sec-body.sec-hidden{display:none}
+.sec-tools{display:flex;justify-content:flex-end;gap:8px;margin:14px 4px 0}
+.sec-tools button{font:inherit;font-size:.75rem;cursor:pointer;border-radius:8px;padding:4px 10px;background:transparent;color:var(--muted);border:1px solid rgba(148,163,184,.35)}
+.sec-tools button:hover{color:var(--text,#e2e8f0)}
+@media print{.sec-body.sec-hidden{display:block!important}.sec-tools,.sec-chev{display:none}}
 .hero{position:relative;overflow:hidden}
 .brand{display:flex;align-items:center;gap:18px;flex-wrap:wrap}
 .brand img.logo-lockup{height:80px;width:auto;max-width:160px;flex:none}
@@ -165,7 +174,52 @@ function applyFindingFilters(){
     f.style.display=okSev&&okVerdict?'':'none';
   });
 }
+// collapsible report sections: each top-level .section-title toggles everything up to the next one.
+// The severity filter bar and footer stay outside any section. Which sections are closed is
+// remembered per browser (best effort; the page works the same without storage).
+const SEC_KEY='kodand-report-collapsed';
+function secLoad(){try{return new Set(JSON.parse(localStorage.getItem(SEC_KEY)||'[]'));}catch(e){return new Set();}}
+function secSave(set){try{localStorage.setItem(SEC_KEY,JSON.stringify([...set]));}catch(e){}}
+function secName(t){return t.dataset.sec;}
+function secSet(t,closed,persist=true){
+  t.classList.toggle('sec-closed',closed);t.setAttribute('aria-expanded',String(!closed));
+  t.nextElementSibling.classList.toggle('sec-hidden',closed);
+  if(persist){const s=secLoad();closed?s.add(secName(t)):s.delete(secName(t));secSave(s);}
+}
+function secAll(closed){document.querySelectorAll('.wrap>.sec-toggle').forEach(t=>secSet(t,closed));}
+function secReveal(id){
+  const el=id&&document.getElementById(id);if(!el)return;
+  const body=el.closest('.sec-body');if(body&&body.classList.contains('sec-hidden'))secSet(body.previousElementSibling,false);
+}
+function initSections(){
+  const wrap=document.querySelector('.wrap');if(!wrap)return;
+  const closed=secLoad();
+  [...wrap.children].filter(el=>el.classList.contains('section-title')).forEach(t=>{
+    const body=document.createElement('div');body.className='sec-body';
+    let n=t.nextElementSibling;
+    while(n&&!n.classList.contains('section-title')&&!n.classList.contains('filters')&&!n.classList.contains('foot')){
+      const next=n.nextElementSibling;body.appendChild(n);n=next;
+    }
+    t.after(body);
+    t.dataset.sec=(t.firstChild&&t.firstChild.nodeType===3?t.firstChild.textContent:t.textContent).trim();
+    t.classList.add('sec-toggle');t.setAttribute('role','button');t.tabIndex=0;
+    const chev=document.createElement('span');chev.className='sec-chev';chev.textContent='▾';t.prepend(chev);
+    t.addEventListener('click',()=>secSet(t,!t.classList.contains('sec-closed')));
+    t.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();t.click();}});
+    if(closed.has(secName(t)))secSet(t,true,false);
+  });
+  const hero=wrap.querySelector('.hero');
+  if(hero){const tools=document.createElement('div');tools.className='sec-tools';
+    tools.innerHTML='<button type="button" data-c="1">Collapse all</button><button type="button" data-c="0">Expand all</button>';
+    tools.addEventListener('click',e=>{const b=e.target.closest('button');if(b)secAll(b.dataset.c==='1');});
+    hero.after(tools);}
+  // a table-of-contents link or a #finding URL opens the section holding its target
+  document.addEventListener('click',e=>{const a=e.target.closest('a[href^="#"]');if(a)secReveal(decodeURIComponent(a.getAttribute('href').slice(1)));},true);
+  window.addEventListener('hashchange',()=>secReveal(decodeURIComponent(location.hash.slice(1))));
+  secReveal(decodeURIComponent(location.hash.slice(1)));
+}
 document.addEventListener('DOMContentLoaded',()=>{
+  initSections();
   document.querySelectorAll('.bar-fill,.scorebar i').forEach(el=>{const w=el.getAttribute('data-w');if(w!==null){requestAnimationFrame(()=>{setTimeout(()=>{el.style.width=w+'%';},80);});}});
   document.querySelectorAll('.finding .fhead').forEach(h=>{h.addEventListener('click',()=>{const c=h.closest('.finding');c.classList.toggle('open');c.querySelector('.fbody').classList.toggle('collapsed');});});
   const btns=document.querySelectorAll('.fbtn[data-sev]');btns.forEach(b=>b.addEventListener('click',()=>{btns.forEach(x=>x.classList.remove('active'));b.classList.add('active');KODAND_FILTER.sev=b.dataset.sev;applyFindingFilters();}));
@@ -566,6 +620,41 @@ def _score_color(s):
     return "#22c55e" if s >= 70 else "#facc15" if s >= 45 else "#94a3b8"
 
 
+_SCOPE_STATUS = {
+    "used": ("Crawled", "#22c55e"), "partial": ("Partly crawled", "#facc15"), "skipped": ("Skipped", "#facc15"),
+    "offline": ("Agent not running", "#94a3b8"), "not_shared": ("Project not shared", "#94a3b8"),
+    "disabled": ("Off", "#94a3b8"), "error": ("Failed", "#f43f5e"),
+}
+
+
+def _agent_scope_html(inv) -> str:
+    """The "Kodand Agent Scope" section: how the scope crawl went, every file it added (with the
+    agent's reason) and the learning suggestions it raised. Empty when the scan didn't ask for it."""
+    sc = inv.agent_scope
+    if sc is None:
+        return ""
+    label, color = _SCOPE_STATUS.get(sc.status, (sc.status, "#94a3b8"))
+    static = sum(1 for e in inv.extensions if e.discovered_by != "kodand-agent")
+    stats = (f"{_pill(label, color)} &nbsp; <b>{static}</b> static entrypoint(s) &middot; <b>{len(sc.added)}</b> added by "
+             f"the agent &middot; {sc.files_crawled} of {sc.files_total - sc.binary_skipped - sc.files_cached} file(s) crawled "
+             f"in {sc.batches_done}/{sc.batches} batch(es) &middot; {sc.files_cached} from cache &middot; "
+             f"{sc.binary_skipped} binary skipped &middot; {sc.duration_s:.0f}s")
+    detail = f'<p class="tagline">{html.escape(sc.detail)}</p>' if sc.detail else ""
+    rows = "".join(f"<tr><td><code>{html.escape(x['path'])}</code></td><td>{html.escape(x['type'])}</td>"
+                   f"<td>{html.escape(x.get('reason', ''))}</td></tr>" for x in sc.added)
+    added = (f'<table><thead><tr><th>Added file</th><th>Type</th><th>Agent\'s reason</th></tr></thead><tbody>{rows}</tbody></table>'
+             if rows else '<p class="tagline">The agent found no agent content outside the static scope.</p>')
+    sug = "".join(f"<li>{html.escape(x['kind'])} <code>{html.escape(x['value'])}</code> "
+                  f"<span class=\"tagline\">(from {html.escape(x.get('example', ''))})</span></li>" for x in sc.suggestions)
+    sug_block = (f'<p style="margin-top:12px"><b>Scope suggestions raised</b> (approve them in the console under Settings '
+                 f'&rarr; Learned scope so scans find these without the agent):</p><ul>{sug}</ul>') if sug else ""
+    return ('  <div class="section-title">Kodand Agent Scope</div>\n'
+            f'  <div class="glass"><p>{stats}</p>{detail}{added}{sug_block}'
+            '<p class="tagline" style="margin-top:12px">The Kodand Agent crawls files outside the static scope and can only '
+            'add agent content (skills, instructions, prompts, sub-agents, MCP/hook configs, scripts the agent runs); '
+            'the static scope is always scanned.</p></div>')
+
+
 def write_html(a, p):
     p = Path(p); p.parent.mkdir(parents=True, exist_ok=True)
     s = a.summary
@@ -624,6 +713,9 @@ def write_html(a, p):
             f'<tbody>{wrows}</tbody></table>\n'
             '    <p class="tagline" style="margin-top:12px">Parts of the repository that were not, or not fully, '
             'scanned. Review these before treating the absence of findings as a clean result.</p></div>')
+    scope_block, agent_added = _agent_scope_html(a.inventory), 0
+    if a.inventory.agent_scope:
+        agent_added = len(a.inventory.agent_scope.added)
     plats = {x.platform: x for x in a.inventory.platforms}
     platform_rows = ""
     for k, v in plats.items():
@@ -765,7 +857,7 @@ def write_html(a, p):
       <span class="chip">Repository <b>{html.escape(a.inventory.repository_name)}</b></span>
       <span class="chip"><span class="dot" id="risk-dot" style="background:{risk_col}"></span>Overall Risk <b id="risk-value" style="color:{risk_col}">{a.summary.overall_risk}</b></span>
       <span class="chip">Findings <b id="findings-count">{a.summary.total}</b></span>{supp}{corr_chip}
-      <span class="chip">Skills <b>{len(a.inventory.extensions)}</b></span>
+      <span class="chip">Skills <b>{len(a.inventory.extensions)}</b></span>{f'<span class="chip">Agent-added <b>{agent_added}</b></span>' if agent_added else ''}
       <span class="chip">Files <b>{a.inventory.files_examined}</b></span>
       <span class="chip">Kodand <b>{a.scanner_version}</b></span>
       <span class="chip">Rule Pack <b>{a.rule_pack_version}</b></span>
@@ -789,9 +881,10 @@ def write_html(a, p):
   <div class="glass"><table><thead><tr><th>Entrypoint</th><th>Undeclared Supporting Files</th><th>Broken References</th></tr></thead><tbody>{rel_rows}</tbody></table>
     <p class="tagline" style="margin-top:12px">Undeclared: exists on disk but never named in the skill's own instructions. Broken: named in the instructions but not found on disk. Candidate signals for human review.</p></div>
   <div class="section-title">Assessment Scope &amp; Methodology</div>
-  <div class="glass"><p>Repository inventory &rarr; platform fingerprinting &rarr; skill discovery &rarr; literal+regex matching &rarr; encoding normalization &rarr; context v2 &rarr; capability inference &rarr; dedup &amp; proximity &rarr; composite scoring &rarr; suppression &rarr; report.</p>
+  <div class="glass"><p>Repository inventory &rarr; platform fingerprinting &rarr; skill discovery{' &rarr; Kodand Agent scope expansion' if a.inventory.agent_scope and a.inventory.agent_scope.status in ('used', 'partial', 'skipped') else ''} &rarr; literal+regex matching &rarr; encoding normalization &rarr; context v2 &rarr; capability inference &rarr; dedup &amp; proximity &rarr; composite scoring &rarr; suppression &rarr; report.</p>
     <p><b>Repository root:</b> <code>{html.escape(a.inventory.repository_root)}</code></p>
     <p><b>Excluded paths:</b> {', '.join(map(html.escape, a.inventory.excluded_paths)) or 'None'} &nbsp;&middot;&nbsp; <b>Warnings:</b> {len(a.inventory.warnings)}</p></div>
+{scope_block}
   <div class="section-title">AST Top 10 Coverage Matrix</div>
   <div class="glass"><table><thead><tr><th>Category</th><th>Name</th><th>Status</th><th>Findings</th></tr></thead><tbody>{ast_coverage_rows}</tbody></table></div>
   <div class="section-title">MCP Top 10 Coverage Matrix <span class="tagline">(OWASP MCP Top 10, 2025)</span></div>

@@ -171,10 +171,15 @@ def path_matches(rel_low: str, pattern: tuple[str, ...]) -> bool:
     return _match(tuple(rel_low.split("/")), ("**",) + pattern)
 
 
-def match_entrypoint(rel: str) -> EntrypointSpec | None:
+def match_entrypoint(rel: str, extra: tuple[EntrypointSpec, ...] = ()) -> EntrypointSpec | None:
+    """The first registry row matching `rel`, then `extra` rows (user-approved learned
+    locations, see kodand.learned_scope) — built-ins always win."""
     rel_low = rel.lower()
     for spec, pats in _COMPILED:
         if any(path_matches(rel_low, p) for p in pats):
+            return spec
+    for spec in extra:
+        if any(path_matches(rel_low, tuple(p.split("/"))) for p in spec.patterns):
             return spec
     return None
 
