@@ -100,18 +100,51 @@ def build_views(text: str) -> list[tuple]:
     Returns a list of `(line_number, ctx, line, view_text, decoded_from)`.
     """
     contexts = classify_document(text)
+    lines = text.splitlines()
     views = []
-    for line_number, line in enumerate(text.splitlines(), start=1):
+    for line_number, line in enumerate(lines, start=1):
         ctx = contexts[line_number - 1] if line_number - 1 < len(contexts) else "instruction"
-        # cap per-line work: normalize/decode does several full-line, pure-Python passes
-        # (homoglyph folding, base64/hex/url decode + printable-ratio scoring) that are
-        # cheap per line but not bounded by MAX_FILE_BYTES alone — a single pathologically
-        # long line (e.g. one huge minified/no-newline blob) could otherwise dominate scan
-        # time even in an otherwise-small file.
-        scan_line = line if len(line) <= MAX_REGEX_LINE else line[:MAX_REGEX_LINE]
-        for view_text, decoded_from in normalized_views(scan_line):
-            views.append((line_number, ctx, line, view_text, decoded_from))
+        # bound per-line work: normalize/decode does several full-line, pure-Python passes, so
+        # a long line is matched as overlapping MAX_REGEX_LINE windows (a payload padded past
+        # the first 2000 chars is still seen), up to MAX_LINE_WINDOWS; past that the rest of
+        # the line is skipped and reported (see LONG_LINES_CLIPPED)
+        for scan_line in _line_windows(line, line_number):
+            for view_text, decoded_from in normalized_views(scan_line):
+                views.append((line_number, ctx, line, view_text, decoded_from))
+        # shell line continuations: also match the joined command, attributed to its first line
+        if line.rstrip().endswith("\\") and (line_number == 1 or not lines[line_number - 2].rstrip().endswith("\\")):
+            joined, j = [line.rstrip()[:-1]], line_number
+            while j < len(lines) and len(joined) < MAX_CONTINUATION_LINES:
+                nxt = lines[j]
+                cont = nxt.rstrip().endswith("\\")
+                joined.append(nxt.rstrip()[:-1] if cont else nxt)
+                j += 1
+                if not cont:
+                    break
+            views.append((line_number, ctx, line, " ".join(p.strip() for p in joined)[:MAX_REGEX_LINE], None))
     return views
+
+
+MAX_LINE_WINDOWS = 25            # 25 x 2000 chars of one line, then stop (and report)
+_WINDOW_OVERLAP = 200            # a match straddling a window edge still fits in one window
+MAX_CONTINUATION_LINES = 10
+# (line_number, length) of lines longer than MAX_LINE_WINDOWS windows since the last reset —
+# read by the scan to report a coverage warning
+LONG_LINES_CLIPPED: list[tuple[int, int]] = []
+
+
+def _line_windows(line: str, line_number: int):
+    if len(line) <= MAX_REGEX_LINE:
+        yield line
+        return
+    step = MAX_REGEX_LINE - _WINDOW_OVERLAP
+    for n, start in enumerate(range(0, len(line), step)):
+        if n == MAX_LINE_WINDOWS:
+            LONG_LINES_CLIPPED.append((line_number, len(line)))
+            return
+        yield line[start:start + MAX_REGEX_LINE]
+        if start + MAX_REGEX_LINE >= len(line):
+            return
 
 
 def precompute_file_views(file_path: Path, repository_root: Path):

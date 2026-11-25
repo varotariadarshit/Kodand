@@ -14,7 +14,7 @@ import re
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FTimeout
 
-MAX_REGEX_LINE = 2000          # characters; longer lines are truncated before regex
+MAX_REGEX_LINE = 2000          # characters; matcher.py splits longer lines into windows of this size
 PER_LINE_BUDGET = 0.25         # seconds per (pattern, line) match attempt
 
 # Heuristics for catastrophic backtracking: nested quantifiers like (a+)+ , (a*)* ,
@@ -78,6 +78,10 @@ def safe_finditer(compiled: re.Pattern, line: str):
 
 FILE_PATTERN_BUDGET = 5.0  # seconds per (file, pattern) sweep across all of a file's lines
 
+# patterns whose sweep hit FILE_PATTERN_BUDGET since the last reset — read by the scan
+# (per worker process, files are matched one at a time) to report a coverage warning
+TIMED_OUT_PATTERNS: list[str] = []
+
 
 def safe_finditer_all(compiled: re.Pattern, views: list[tuple]) -> list[tuple]:
     """Run `compiled` against every (line_number, ctx, line, view_text, decoded_from) in
@@ -91,7 +95,7 @@ def safe_finditer_all(compiled: re.Pattern, views: list[tuple]) -> list[tuple]:
     tradeoff is a coarser fail-safe: if the budget is exceeded partway through, matches
     already found are kept and the rest of the file is skipped for this pattern only
     (not the whole scan). `views`' `view_text` entries are expected to already be
-    length-capped by the caller (matcher.py truncates to MAX_REGEX_LINE before this).
+    length-capped by the caller (matcher.py splits longer lines into MAX_REGEX_LINE windows before this).
     """
     results: list[tuple] = []
 
@@ -104,7 +108,7 @@ def safe_finditer_all(compiled: re.Pattern, views: list[tuple]) -> list[tuple]:
         fut = _EXECUTOR.submit(_run)
         fut.result(timeout=FILE_PATTERN_BUDGET)
     except FTimeout:
-        pass  # fail-safe: keep whatever was found before the budget ran out
+        TIMED_OUT_PATTERNS.append(compiled.pattern)  # keep what was found; the scan reports the gap
     except Exception:
         pass
     return results

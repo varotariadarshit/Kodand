@@ -256,6 +256,10 @@ thead th{background:var(--surface-2);text-transform:uppercase;font-size:.7rem;le
             <input type="checkbox" id="p-mcp-shared" onchange="toggleProjectMcpSharing()"><span class="sw"></span>
             <span>Share with MCP agents</span>
           </label>
+          <label class="tog" style="margin:0" title="Apply the .kodand.yml suppressions shipped inside the scanned folder. Off by default: a scanned repo could otherwise hide its own findings. Turn on only for code you control.">
+            <input type="checkbox" id="p-trust-repo" onchange="toggleProjectRepoSuppressions()"><span class="sw"></span>
+            <span>Trust repo .kodand.yml</span>
+          </label>
           <button class="del" onclick="deleteCurrentProject()">Delete project</button>
         </div>
 
@@ -916,6 +920,7 @@ function showProject(p){
   document.getElementById('scan-agent-max').value='';
   toggleScanAgent();
   document.getElementById('p-mcp-shared').checked=!!p.mcp_shared;
+  document.getElementById('p-trust-repo').checked=!!p.trust_repo_suppressions;
   loadScans();
   loadSuppressions();
 }
@@ -939,8 +944,16 @@ async function deleteSuppression(i){
   try{await api('/api/projects/'+CUR.id+'/suppressions/'+i,{method:'DELETE'});toast('Suppression deleted');loadSuppressions();}catch(e){toast(e.message,false);}
 }
 async function copySuppressions(){
-  try{await navigator.clipboard.writeText(SUPPRESSIONS_YAML);toast('Copied — paste it into .kodand.yml at the root of the scanned folder');}
+  try{await navigator.clipboard.writeText(SUPPRESSIONS_YAML);toast('Copied — paste it into .kodand.yml at the root of the scanned folder, and turn on "Trust repo .kodand.yml" for this project');}
   catch(e){toast('Couldn’t copy: '+e.message,false);}
+}
+async function toggleProjectRepoSuppressions(){
+  const cb=document.getElementById('p-trust-repo');
+  try{
+    const r=await api('/api/projects/'+CUR.id+'/repo-suppressions',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({trusted:cb.checked})});
+    CUR.trust_repo_suppressions=r.trust_repo_suppressions;
+    toast(cb.checked?'The scanned folder\'s .kodand.yml will be applied from the next scan':'Repo .kodand.yml files will be ignored from the next scan');
+  }catch(e){cb.checked=!cb.checked;toast(e.message,false);}
 }
 async function toggleProjectMcpSharing(){
   const cb=document.getElementById('p-mcp-shared');

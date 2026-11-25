@@ -70,8 +70,9 @@ def run_bench(corpus_path: str, score_threshold: int = SCORE_THRESHOLD) -> dict:
         for sample, exp_cats in expected.items():
             sample_dir = corpus / sample
             sample_out = tmp / sample.replace("/", "_")
+            # never from the workspace cache: a benchmark must measure the rules as they are now
             run_template_scan(str(sample_dir), use_custom=False, custom_dir=None,
-                              out_dir=sample_out, formats=("json",))
+                              out_dir=sample_out, formats=("json",), use_cache=False)
             got = _categories_over_threshold(sample_out, score_threshold)
             if exp_cats is None:
                 # presence-only expectation

@@ -22,16 +22,51 @@ def cache_path() -> Path:
     return workspace_root() / "scan_cache.json"
 
 
+# Modules whose code decides what a cached entry contains, beyond the templates
+# themselves: matching, context/normalisation and every structural analyser.
+_ENGINE_MODULES = (
+    "templates/matcher.py", "templates/context.py", "templates/normalize.py", "templates/confidence.py",
+    "templates/regexguard.py", "redaction.py", "codeanalysis/__init__.py", "codeanalysis/rules.py",
+    "codeanalysis/json_rules.py", "codeanalysis/json_struct.py", "codeanalysis/python_ast.py",
+    "codeanalysis/js_ast.py", "codeanalysis/hidden_text.py", "codeanalysis/markdown_rules.py",
+    "codeanalysis/secrets.py", "webui/scan_service.py",
+)
+_engine_fp: str | None = None
+
+
+def engine_fingerprint() -> str:
+    """Hash of the Kodand version plus the source of every module that shapes a
+    cached result, so upgrading Kodand or changing any analyser/context rule
+    invalidates the cache without anyone remembering to bump a constant."""
+    global _engine_fp
+    if _engine_fp is None:
+        from kodand import __version__
+        root = Path(__file__).resolve().parent.parent
+        h = hashlib.sha256(__version__.encode())
+        for rel in _ENGINE_MODULES:
+            try:
+                h.update(rel.encode() + b"\0" + (root / rel).read_bytes())
+            except OSError:
+                h.update(rel.encode() + b"\0missing")
+        _engine_fp = h.hexdigest()
+    return _engine_fp
+
+
 def template_set_hash(templates) -> str:
-    """Sha256 over each template's (id, match, regex), sorted by id. Changes
-    whenever any builtin or custom template is added, removed, or edited, so a
-    template-set change invalidates every cached entry rather than risking a
-    finding computed under an old rule set silently surviving a rule change."""
-    basis = sorted(
-        (t.id, list(t.detection.match), list(t.detection.regex))
-        for t in templates
-    )
-    return hashlib.sha256(json.dumps(basis, sort_keys=True).encode()).hexdigest()
+    """Sha256 over every template's full definition (id, info incl. severity/
+    category/confidence, detection, capabilities, ...), sorted by id, plus the
+    engine fingerprint. Any template or engine change invalidates every cached
+    entry rather than risking a finding computed under an old rule set
+    silently surviving a rule change."""
+    basis = sorted((t.model_dump(mode="json") for t in templates), key=lambda d: d["id"])
+    return hashlib.sha256(json.dumps({"engine": engine_fingerprint(), "templates": basis},
+                                     sort_keys=True).encode()).hexdigest()
+
+
+def cache_key(content_hash: str, analyser_class: str) -> str:
+    """Entries are per (content, analyser): the same bytes in a .md and a .py file
+    go through different structural analysers and must not share a result."""
+    return f"{content_hash}:{analyser_class}"
 
 
 def load_cache(current_hash: str) -> dict:

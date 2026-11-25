@@ -126,3 +126,26 @@ def test_select_scan_files_below_budget_is_unchanged():
     entry_files = {"a"}
     supporting_files = {"b", "c"}
     assert set(_select_scan_files(entry_files, supporting_files, max_scan_files=100)) == entry_files | supporting_files
+
+
+def test_same_content_in_md_and_py_does_not_share_a_cache_entry(tmp_path, monkeypatch):
+    monkeypatch.setenv("KODAND_HOME", str(tmp_path / "home"))
+    code = "import pickle\npickle.loads(blob)\n"
+    first, second = tmp_path / "first", tmp_path / "second"
+    for repo, name in ((first, "notes.md"), (second, "tool.py")):
+        (repo / "s").mkdir(parents=True)
+        (repo / "s" / "SKILL.md").write_text("---\nname: s\ndescription: d\n---\nSee the files.\n")
+        (repo / "s" / name).write_text(code)
+    run_template_scan(str(first), use_custom=False, custom_dir=None, out_dir=tmp_path / "o1", formats=("json",))
+    run_template_scan(str(second), use_custom=False, custom_dir=None, out_dir=tmp_path / "o2", formats=("json",))
+    rules = {f["rule_id"] for f in json.loads((tmp_path / "o2" / "analysis.json").read_text())["findings"]}
+    assert "AST04-PY-DESERIALIZATION" in rules
+
+
+def test_template_set_hash_changes_on_a_severity_edit():
+    from kodand.webui.scan_cache import template_set_hash
+    from kodand.webui.scan_service import load_builtin_templates
+    templates = load_builtin_templates()
+    before = template_set_hash(templates)
+    templates[0] = templates[0].model_copy(update={"info": templates[0].info.model_copy(update={"severity": "low"})})
+    assert template_set_hash(templates) != before

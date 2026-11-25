@@ -62,6 +62,7 @@ def analyze(repository: Path, output: Path = typer.Option(Path('analysis.json'),
             workers: int = typer.Option(1, '--workers', help='Match files in parallel across this many worker processes (1 = sequential).'),
             no_cache: bool = typer.Option(False, '--no-cache', help='Skip the content-hash scan cache: neither read nor update it, for a guaranteed-fresh scan.'),
             max_files: int = typer.Option(None, '--max-files', help='Cap on how many files a single scan matches (default: 10000). Entrypoints are always kept; code/config files are prioritized over docs when over budget.'),
+            trust_repo_suppressions: bool = typer.Option(False, '--trust-repo-suppressions', help="Apply the scanned repository's own .kodand.yml suppressions. Off by default so a repo can't hide its own findings; use it only for a repository you control."),
             no_banner: bool = typer.Option(False, '--no-banner')):
     """Scan a directory for security risks and write JSON, plus optional HTML, SARIF, DOCX or PDF reports."""
     if not no_banner:
@@ -74,7 +75,8 @@ def analyze(repository: Path, output: Path = typer.Option(Path('analysis.json'),
     if docx: formats.append('docx')
     if pdf: formats.append('pdf')
     res = run(run_template_scan, str(repository), False, None, out_dir, tuple(formats),
-              workers=workers, use_cache=not no_cache, max_scan_files=max_files)
+              workers=workers, use_cache=not no_cache, max_scan_files=max_files,
+              trust_repo_suppressions=trust_repo_suppressions)
     # move default json to requested output name
     default_json = out_dir / 'analysis.json'
     if default_json.exists() and default_json != output:

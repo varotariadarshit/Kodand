@@ -34,10 +34,11 @@ from kodand.models.analysis import (
 from kodand.models.inventory import ScanWarning
 from kodand.reporting import write_docx, write_html, write_pdf, write_sarif
 from kodand.scanner import inventory_repository
-from kodand.suppress import apply_suppressions
+from kodand.suppress import apply_suppressions, repo_suppression_file
+from kodand.templates import matcher, regexguard
 from kodand.templates.correlation import correlate_capabilities
 from kodand.templates.loader import load_templates
-from kodand.templates.matcher import TemplateMatch, build_views, match_template_views, read_file
+from kodand.templates.matcher import MAX_FILE_BYTES, TemplateMatch, build_views, match_template_views, read_file
 from kodand.webui import scan_cache
 
 BUILTIN_CATS = set(BUILTIN_NAMES)  # every AST/MCP/HOOK code — see kodand.categories
@@ -105,14 +106,24 @@ def _scan_one_file(file_path_str: str):
     objects straight from the cached dicts instead of recomputing them.
 
     Returns `(relative_path | None, {template_id: [TemplateMatch, ...]},
-    content_hash | None, was_cache_hit)`.
+    content_hash | None, was_cache_hit)`. Coverage problems for this file (skipped
+    for size, regex budget exhausted, overlong line clipped) come back under the
+    reserved `WARNINGS_KEY` as `[code, message]` pairs, cached with the matches.
     """
     file_path = Path(file_path_str)
     result = read_file(file_path, _worker_root)
     if result is None:
+        try:
+            too_big = file_path.stat().st_size > MAX_FILE_BYTES
+        except OSError:
+            too_big = False
+        if too_big:
+            rel = file_path.relative_to(_worker_root).as_posix()
+            return rel, {WARNINGS_KEY: [["FILE_SKIPPED_OVERSIZE", rel]]}, None, False
         return None, {}, None, False
     relative_path, text = result
-    content_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    content_hash = scan_cache.cache_key(hashlib.sha256(text.encode("utf-8")).hexdigest(),
+                                        analyser_class(file_path))
 
     cached = _worker_cache.get(content_hash)
     if cached is not None:
@@ -120,9 +131,13 @@ def _scan_one_file(file_path_str: str):
         # content was scanned, which may be a different relative path (two files with
         # byte-identical content, e.g. copy-pasted boilerplate) — always re-stamp the
         # current file's relative_path rather than trusting the cached value.
-        out = {tid: [TemplateMatch(**{**m, "file": relative_path}) for m in ms] for tid, ms in cached.items()}
+        out = {tid: ([list(w[:1]) + [relative_path] for w in ms] if tid == WARNINGS_KEY else
+                     [TemplateMatch(**{**m, "file": relative_path}) for m in ms])
+               for tid, ms in cached.items()}
         return relative_path, out, content_hash, True
 
+    regexguard.TIMED_OUT_PATTERNS.clear()
+    matcher.LONG_LINES_CLIPPED.clear()
     views = build_views(text)
     out: dict[str, list] = {}
     for t in _worker_templates:
@@ -145,7 +160,76 @@ def _scan_one_file(file_path_str: str):
         for m in analyze_markdown_source(text, relative_path, file_path.name):
             out.setdefault(m.template_id, []).append(m)
 
+    warnings = []
+    if regexguard.TIMED_OUT_PATTERNS:
+        warnings.append(["REGEX_TIMEOUT", relative_path])
+    if matcher.LONG_LINES_CLIPPED:
+        warnings.append(["LINE_CLIPPED", relative_path])
+    limit = _AST_SIZE_LIMITS.get(file_path.suffix.lower())
+    if limit and len(text.encode("utf-8", "replace")) > limit:
+        warnings.append(["ANALYSIS_SKIPPED_OVERSIZE", relative_path])
+    if warnings:
+        out[WARNINGS_KEY] = warnings
+
     return relative_path, out, content_hash, False
+
+
+WARNINGS_KEY = "__warnings__"
+_WARNING_TEXT = {
+    "FILE_SKIPPED_OVERSIZE": "file(s) larger than the 50 MB per-file cap were not scanned",
+    "REGEX_TIMEOUT": "file(s) where a detection pattern ran out of its time budget, so the rest of the file "
+                     "was not checked against that pattern",
+    "LINE_CLIPPED": "file(s) with a line longer than about 45,000 characters; only its first 45,000 or so characters were matched",
+    "ANALYSIS_SKIPPED_OVERSIZE": "code/JSON file(s) over the structural-analysis size cap (5 MB code, 2 MB JSON); "
+                                 "only text templates ran on them",
+}
+
+
+def _size_limits() -> dict:
+    from kodand.codeanalysis.json_struct import MAX_JSON_SOURCE_BYTES
+    from kodand.codeanalysis.python_ast import MAX_PY_SOURCE_BYTES
+    out = {s: MAX_PY_SOURCE_BYTES for s in (".py",)}
+    out.update({s: 5_000_000 for s in (".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx")})
+    out[".json"] = MAX_JSON_SOURCE_BYTES
+    return out
+
+
+_AST_SIZE_LIMITS = _size_limits()
+
+
+def _js_analysis_unavailable() -> bool:
+    try:
+        import kodand.codeanalysis.js_ast  # noqa: F401
+    except ImportError:
+        return True
+    return False
+
+
+def warnings_from_results(results) -> list[ScanWarning]:
+    """Fold per-file `[code, path]` coverage warnings into one ScanWarning per code."""
+    by_code: dict[str, list[str]] = {}
+    for r in results:
+        if r is None or r[0] is None:
+            continue
+        for code, path in r[1].get(WARNINGS_KEY, []):
+            by_code.setdefault(code, []).append(path)
+    out = []
+    for code, paths in by_code.items():
+        paths = sorted(set(paths))
+        shown = ", ".join(paths[:10]) + (f", and {len(paths) - 10} more" if len(paths) > 10 else "")
+        out.append(ScanWarning(code=code, message=f"{len(paths)} {_WARNING_TEXT.get(code, code)}: {shown}",
+                               path=paths[0]))
+    return out
+
+
+def analyser_class(file_path: Path) -> str:
+    """Which structural analysers a file goes through — part of its cache key."""
+    suffix = file_path.suffix.lower()
+    if suffix in ANALYZABLE_EXTENSIONS:
+        return "code" + suffix
+    if is_markdown_like(file_path.name, file_path.suffix):
+        return "md-skill" if file_path.name.lower() in ("skill.md", "skills.md") else "md"
+    return "text"
 
 
 def load_builtin_templates():
@@ -187,7 +271,8 @@ def _select_scan_files(entry_files: set[Path], supporting_files: set[Path], max_
 def run_template_scan(repo_path: str, use_custom: bool, custom_dir: Path | None,
                       out_dir: Path, formats=("html", "json", "sarif"), on_progress=None,
                       *, workers: int = 1, use_cache: bool = True, max_scan_files: int | None = None,
-                      extra_suppressions: list[dict] | None = None) -> dict:
+                      extra_suppressions: list[dict] | None = None,
+                      trust_repo_suppressions: bool = False) -> dict:
     """`on_progress(stage: str, detail: dict)`, called at each pipeline stage transition and once per
     file during template matching (stage="matching", detail has current_file/scanned/total) — feeds the
     web console's live scan-progress dashboard. Optional; scanning behaves identically without it.
@@ -302,15 +387,27 @@ def run_template_scan(repo_path: str, use_custom: bool, custom_dir: Path | None,
             for relative_path, matches_by_tid, content_hash, was_hit in results:
                 if relative_path is None or was_hit or content_hash is None:
                     continue
-                new_entries[content_hash] = {tid: [asdict(m) for m in ms] for tid, ms in matches_by_tid.items()}
+                new_entries[content_hash] = {tid: (ms if tid == WARNINGS_KEY else [asdict(m) for m in ms])
+                                             for tid, ms in matches_by_tid.items()}
             scan_cache.save_cache(cache_hash, new_entries)
 
         for relative_path, matches_by_tid, _content_hash, _was_hit in results:
             if relative_path is None:
                 continue
             for tid, ms in matches_by_tid.items():
+                if tid == WARNINGS_KEY:
+                    continue
                 grouped.setdefault(tid, []).extend(ms)
                 all_caps.extend(tmap[tid].capabilities)
+
+        inv.warnings.extend(warnings_from_results(results))
+        if _js_analysis_unavailable() and any(
+                sf.suffix.lower() in {".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx"} for sf in scan_files):
+            inv.warnings.append(ScanWarning(
+                code="JS_ANALYSIS_UNAVAILABLE",
+                message=("tree-sitter is not installed, so JavaScript/TypeScript files (and ts/js code fences) "
+                         "got text templates only, no AST rules. Re-run ./install.sh to install it."),
+            ))
 
         # symlinks escaping the repository: never followed or scanned (see
         # copy_snapshot/scan file selection), so report the link itself
@@ -372,7 +469,15 @@ def run_template_scan(repo_path: str, use_custom: bool, custom_dir: Path | None,
         findings = run_accuracy_pipeline(findings, declared_files=declared_files)
         # v3 suppression framework
         _progress("suppression")
-        findings, suppressed = apply_suppressions(findings, root, extra_suppressions)
+        findings, suppressed = apply_suppressions(findings, root, extra_suppressions,
+                                                  trust_repo=trust_repo_suppressions)
+        if not trust_repo_suppressions and repo_suppression_file(root):
+            inv.warnings.append(ScanWarning(
+                code="REPO_SUPPRESSIONS_IGNORED",
+                message=("The scanned repository ships a .kodand.yml; its suppressions were NOT applied, so "
+                         "the repo can't hide its own findings. Trust it explicitly to apply them "
+                         "(kodand analyze --trust-repo-suppressions, or the project's toggle in the console)."),
+                path=".kodand.yml"))
 
         sev = {k: 0 for k in ["critical", "high", "medium", "low", "informational"]}
         by = {}

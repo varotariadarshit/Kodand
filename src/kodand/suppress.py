@@ -1,6 +1,11 @@
 """Suppression framework v2 (Track A #6).
 
-Reads `.kodand.yml` from the repository root. Supports both the legacy
+Reads `.kodand.yml` from the repository root — only when the caller explicitly
+trusts the scanned repository (`trust_repo=True`: `kodand analyze
+--trust-repo-suppressions`, the console's per-project toggle, the MCP `scan`
+argument). By default a scanned repo cannot suppress its own findings: a
+malicious skill pack could otherwise ship a `.kodand.yml` hiding itself.
+Supports both the legacy
 `suppress_rules: [ID, ...]` list and a richer `suppressions:` block:
 
     suppressions:
@@ -11,9 +16,13 @@ Reads `.kodand.yml` from the repository root. Supports both the legacy
         reason: "test fixtures"       # required for audit
         expires: 2026-12-31           # optional ISO date; ignored once past
 
-A suppression matches a finding if all *provided* fields match. Expired
-suppressions are ignored (so risk re-surfaces). Suppressed findings are marked
-status="suppressed" with suppressed_reason and excluded from active counts.
+A suppression matches an OCCURRENCE if all *provided* fields match (`rule`
+against the occurrence's own rule, `path` against its file). A finding is
+suppressed only when every occurrence is; otherwise just the matched
+occurrences are dropped and the rest stays active — `path: tests/**` never
+hides the same rule's hit in a SKILL.md. Expired suppressions are ignored (so
+risk re-surfaces). Suppressed findings are marked status="suppressed" with
+suppressed_reason and excluded from active counts.
 """
 from __future__ import annotations
 
@@ -51,8 +60,26 @@ class Suppression:
             return True
         return (today or date.today()) <= self.expires
 
+    def _selectors(self) -> bool:
+        return any([self.rule, self.category, self.finding_id, self.path])
+
+    def matches_occurrence(self, f: CorrelatedFinding, o) -> bool:
+        if not self._selectors():
+            return False
+        if self.rule and self.rule != (getattr(o, "rule_id", None) or f.rule_id):
+            return False
+        if self.category and self.category != f.category:
+            return False
+        if self.finding_id and self.finding_id != f.finding_id:
+            return False
+        if self.path and not fnmatch.fnmatch(o.file, self.path):
+            return False
+        return True
+
     def matches(self, f: CorrelatedFinding) -> bool:
-        if self.rule and self.rule != f.rule_id and self.rule not in f.merged_rule_ids:
+        """Finding-level match (used when a finding has no occurrences). A rule
+        selector matches the finding's own rule only — never a rule merged into it."""
+        if self.rule and self.rule != f.rule_id:
             return False
         if self.category and self.category != f.category:
             return False
@@ -86,19 +113,44 @@ def load_suppressions_v2(root) -> list[Suppression]:
     return out
 
 
-def apply_suppressions(findings: list[CorrelatedFinding], root, extra: list[dict] | None = None) -> tuple[list[CorrelatedFinding], int]:
+def repo_suppression_file(root) -> Path | None:
+    p = Path(root) / ".kodand.yml"
+    return p if p.exists() else None
+
+
+def apply_suppressions(findings: list[CorrelatedFinding], root, extra: list[dict] | None = None,
+                       trust_repo: bool = False) -> tuple[list[CorrelatedFinding], int]:
     """Mark matching findings as suppressed. Returns (active_findings, suppressed_count). `extra` adds
-    entries kept outside the repo (the web console's per-project suppressions) to its `.kodand.yml`."""
-    rules = [s for s in load_suppressions_v2(root) + [Suppression(d) for d in extra or []] if s.active()]
+    entries kept outside the repo (the web console's per-project suppressions). The scanned repo's own
+    `.kodand.yml` is only read when `trust_repo` is set."""
+    repo_rules = load_suppressions_v2(root) if trust_repo else []
+    rules = [s for s in repo_rules + [Suppression(d) for d in extra or []] if s.active()]
     if not rules:
         return findings, 0
     active, suppressed = [], 0
     for f in findings:
-        hit = next((s for s in rules if s.matches(f)), None)
-        if hit:
-            f.status = "suppressed"
-            f.suppressed_reason = hit.reason
+        if not f.occurrences:
+            hit = next((s for s in rules if s.matches(f)), None)
+            if hit:
+                f.status, f.suppressed_reason = "suppressed", hit.reason
+                suppressed += 1
+            else:
+                active.append(f)
+            continue
+        kept, first_hit = [], None
+        for o in f.occurrences:
+            hit = next((s for s in rules if s.matches_occurrence(f, o)), None)
+            if hit:
+                first_hit = first_hit or hit
+            else:
+                kept.append(o)
+        if not kept:
+            f.status, f.suppressed_reason = "suppressed", first_hit.reason
             suppressed += 1
-        else:
-            active.append(f)
+            continue
+        if len(kept) != len(f.occurrences):
+            f.occurrences = kept
+            f.occurrence_count = len(kept)
+            f.affected_files = sorted({o.file for o in kept})
+        active.append(f)
     return active, suppressed

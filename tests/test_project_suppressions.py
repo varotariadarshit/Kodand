@@ -53,15 +53,18 @@ def test_folder_scope_suppresses_only_that_folder_now_and_on_rescan(scanned):
     pid, sid, findings, tmp_path = scanned
     rule = next(f["rule_id"] for f in findings if any(a.startswith("docs/") for a in f["affected_files"]))
     entry = store.add_project_suppression(pid, {"rule": rule, "path": "docs/**", "reason": "documentation pages"})
-    hits = store.apply_suppression_to_scan(pid, sid, entry)
-    assert hits and all(store.get_review(pid, sid)[h]["status"] == "suppressed" for h in hits)
-    assert all(any(a.startswith("docs/") for a in f["affected_files"]) for f in findings if f["finding_id"] in hits)
-    # next scan of the same project: suppressed by the scanner itself, without touching the source folder
+    # every finding here also has evidence in Agent-1/, which a docs/** scope must not hide
+    assert store.apply_suppression_to_scan(pid, sid, entry) == []
+    # next scan of the same project: the scanner drops the docs/ evidence only, without touching the source folder
     again = mcpserver.scan(path=str(tmp_path / "repo"), project=pid)
-    assert again["suppressed"] >= 1
     assert not (tmp_path / "repo" / ".kodand.yml").exists()
     rescanned = store._analysis(pid, again["scan_id"])["findings"]
-    assert not any(f["rule_id"] == rule and any(a.startswith("docs/") for a in f["affected_files"]) for f in rescanned)
+    kept = next(f for f in rescanned if f["rule_id"] == rule)
+    assert kept["affected_files"] == ["Agent-1/SKILL.md"]
+    # a folder holding all of a finding's evidence suppresses it outright, now and on rescan
+    only_docs = store.add_project_suppression(pid, {"path": "*/SKILL.md", "reason": "both skill folders"})
+    assert store.apply_suppression_to_scan(pid, sid, only_docs)
+    assert mcpserver.scan(path=str(tmp_path / "repo"), project=pid)["suppressed"] >= 1
 
 
 def test_finding_scope_and_delete_and_yaml_export(scanned):

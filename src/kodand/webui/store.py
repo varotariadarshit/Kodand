@@ -94,6 +94,22 @@ def delete_project(pid: str) -> bool:
         cancel_agent_jobs(pid=pid)  # nothing left for Claude Agent to read: don't spend runs on it
         return True
     return False
+def set_project_trust_repo_suppressions(pid: str, trusted: bool) -> dict:
+    """Per-project opt-in to applying the scanned repo's own .kodand.yml. Only settable by a
+    person in the console — never by an MCP client, which a scanned repo could steer."""
+    meta_path = _project_dir(pid) / "project.json"
+    data = json.loads(meta_path.read_text()); data["trust_repo_suppressions"] = bool(trusted)
+    meta_path.write_text(json.dumps(data, indent=2))
+    return data
+
+
+def project_trusts_repo_suppressions(pid: str) -> bool:
+    try:
+        return bool(json.loads((_project_dir(pid) / "project.json").read_text()).get("trust_repo_suppressions"))
+    except (OSError, ValueError):
+        return False
+
+
 def set_project_mcp_sharing(pid: str, shared: bool) -> dict:
     d = _project_dir(pid); meta_path = d/"project.json"
     data = json.loads(meta_path.read_text()); data["mcp_shared"] = bool(shared)
@@ -566,13 +582,21 @@ def project_suppressions_yaml(pid: str) -> str:
 
 
 def apply_suppression_to_scan(pid: str, sid: str, entry: dict) -> list:
-    """Mark this scan's findings that `entry` matches as suppressed, so a new suppression shows at once
-    rather than only on the next scan. Returns their ids."""
+    """Mark this scan's findings that `entry` fully covers as suppressed, so a new suppression shows at
+    once rather than only on the next scan. Returns their ids. A finding with evidence outside the
+    entry's scope (e.g. a `path` suppression and hits in other folders) stays active here; the next
+    scan drops just the covered occurrences."""
     from kodand.models.analysis import CorrelatedFinding
     from kodand.suppress import Suppression
     rule = Suppression(entry)
+
+    def covered(f: CorrelatedFinding) -> bool:
+        if not f.occurrences:
+            return rule.matches(f)
+        return all(rule.matches_occurrence(f, o) for o in f.occurrences)
+
     hits = [f["finding_id"] for f in _analysis(pid, sid).get("findings", [])
-            if rule.matches(CorrelatedFinding.model_validate(f))]
+            if covered(CorrelatedFinding.model_validate(f))]
     for fid in hits:
         set_finding_status(pid, sid, fid, "suppressed")
     return hits

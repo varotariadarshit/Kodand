@@ -136,7 +136,10 @@ def scan(path: str, project: str | None = None, label: str | None = None, use_cu
             # process from this MCP stdio server — can watch this scan's progress in real time
             on_progress=lambda stage, detail: store.write_scan_progress(pid, sid, stage, detail),
             workers=min(max(1, int(workers)), os.cpu_count() or 1), use_cache=bool(use_cache),
-            extra_suppressions=store.sync_status_suppressions(pid))
+            extra_suppressions=store.sync_status_suppressions(pid),
+            # the project's console toggle, never a tool argument: a scanned repo could tell
+            # the calling agent to pass "trust" and hide its own findings
+            trust_repo_suppressions=store.project_trusts_repo_suppressions(pid))
     except Exception as e:
         store.finish_scan_progress(pid, sid, "error", {"message": str(e)})
         # keep progress.json/activity_log.json around (delete_scan would wipe them too) so the
